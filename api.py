@@ -6,6 +6,7 @@ that the dashboard consumes for real-time updates.
 """
 
 import asyncio
+import concurrent.futures
 import json
 import os
 import time
@@ -208,11 +209,28 @@ async def get_task_deps(task_id: int, conn=Depends(get_conn)):
     return [dict(r) for r in rows]
 
 
+def _trigger_immediate_sync(conn, task_id: int) -> None:
+    """Fire an immediate GitHub sync in the background if this task has a linked issue."""
+    gs = conn.execute(
+        "SELECT issue_number FROM github_sync WHERE task_id = ?", (task_id,)
+    ).fetchone()
+    if not gs:
+        return
+    token, repo = github_sync._resolve_config()
+    if not token or not repo:
+        return
+    last_poll_ts = [int(time.time())]
+    concurrent.futures.ThreadPoolExecutor(max_workers=1).submit(
+        github_sync._sync_once, conn, token, repo, last_poll_ts
+    )
+
+
 @app.post("/tasks/{task_id}/claim", response_model=OkResponse)
 async def claim_task(task_id: int, body: TaskClaim, conn=Depends(get_conn)):
     ok = database.claim_task(conn, task_id, body.agent_id, LEASE_TTL)
     if not ok:
         raise HTTPException(409, "Task already claimed or not pending")
+    _trigger_immediate_sync(conn, task_id)
     return {"ok": True}
 
 
@@ -229,6 +247,7 @@ async def complete_task(task_id: int, body: TaskComplete, conn=Depends(get_conn)
     ok = database.complete_task(conn, task_id, body.agent_id)
     if not ok:
         raise HTTPException(409, "Task not owned by this agent")
+    _trigger_immediate_sync(conn, task_id)
     return {"ok": True}
 
 
@@ -237,6 +256,7 @@ async def block_task(task_id: int, body: TaskBlock, conn=Depends(get_conn)):
     ok = database.block_task(conn, task_id, body.agent_id, body.reason)
     if not ok:
         raise HTTPException(409, "Task not owned by this agent")
+    _trigger_immediate_sync(conn, task_id)
     return {"ok": True}
 
 
@@ -245,6 +265,7 @@ async def unblock_task(task_id: int, conn=Depends(get_conn)):
     ok = database.unblock_task(conn, task_id)
     if not ok:
         raise HTTPException(409, "Task is not blocked")
+    _trigger_immediate_sync(conn, task_id)
     return {"ok": True}
 
 
