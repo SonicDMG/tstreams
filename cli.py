@@ -1,0 +1,454 @@
+"""
+cli.py — Click CLI for tstreams.
+
+All commands call the tstreams API (default: http://localhost:8765).
+Set TSTREAMS_URL to override.
+
+Usage examples:
+  ts server start
+  ts epic create "Agent Runtime"
+  ts task create "Build parser" --epic 1 --deps 3,4
+  ts task claim 42 --agent claude-1
+  ts task heartbeat 42 --agent claude-1
+  ts task complete 42 --agent claude-1
+  ts task block 42 --agent claude-1 --reason "waiting on #17"
+  ts task list
+  ts task list --epic 1 --status pending
+  ts decision add "Use SQLite WAL" --content "WAL mode for concurrent reads" --epic 1
+  ts agent register claude-1
+  ts status
+"""
+
+import json
+import os
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+import click
+import httpx
+
+BASE_URL = os.environ.get("TSTREAMS_URL", "http://localhost:8765")
+
+
+def _detect_project() -> str:
+    """
+    Auto-detect the current project name. Resolution order:
+    1. TSTREAMS_PROJECT env var
+    2. .tstreams.toml `project` key in cwd or any parent
+    3. git remote 'origin' repo name  (e.g. SonicDMG/tstreams → tstreams)
+    4. Current directory name
+    """
+    if val := os.environ.get("TSTREAMS_PROJECT"):
+        return val
+
+    # Walk up to find .tstreams.toml
+    cwd = Path.cwd()
+    for directory in [cwd, *cwd.parents]:
+        toml_path = directory / ".tstreams.toml"
+        if toml_path.exists():
+            try:
+                import tomllib
+            except ImportError:
+                try:
+                    import tomli as tomllib
+                except ImportError:
+                    tomllib = None
+            if tomllib:
+                with open(toml_path, "rb") as f:
+                    cfg = tomllib.load(f)
+                if project := cfg.get("project"):
+                    return project
+            break
+
+    # Try git remote
+    try:
+        result = subprocess.run(
+            ["git", "remote", "get-url", "origin"],
+            capture_output=True, text=True, timeout=2,
+        )
+        if result.returncode == 0:
+            url = result.stdout.strip()
+            # handles https://github.com/owner/repo.git and git@github.com:owner/repo.git
+            name = url.rstrip("/").rstrip(".git").split("/")[-1].split(":")[-1]
+            if name:
+                return name
+    except Exception:
+        pass
+
+    return Path.cwd().name
+
+STATUS_EMOJI = {
+    "pending":     "○",
+    "in_progress": "⟳",
+    "done":        "✔",
+    "blocked":     "✘",
+}
+
+STATUS_COLOR = {
+    "pending":     "white",
+    "in_progress": "cyan",
+    "done":        "green",
+    "blocked":     "red",
+}
+
+
+def _api(method: str, path: str, **kwargs):
+    url = f"{BASE_URL}{path}"
+    try:
+        r = httpx.request(method, url, timeout=10, **kwargs)
+        r.raise_for_status()
+        return r.json()
+    except httpx.ConnectError:
+        click.echo(click.style("✘ Cannot connect to tstreams server. Run: ts server start", fg="red"), err=True)
+        sys.exit(1)
+    except httpx.HTTPStatusError as e:
+        msg = e.response.text
+        try:
+            msg = e.response.json().get("detail", msg)
+        except Exception:
+            pass
+        click.echo(click.style(f"✘ {e.response.status_code}: {msg}", fg="red"), err=True)
+        sys.exit(1)
+
+
+# ── Root group ────────────────────────────────────────────────────────────────
+
+@click.group()
+def cli():
+    """tstreams — task coordination for multi-agent workflows."""
+    pass
+
+
+# ── Server ────────────────────────────────────────────────────────────────────
+
+@cli.group()
+def server():
+    """Start and stop the tstreams server."""
+    pass
+
+
+@server.command("start")
+@click.option("--db", default=None, help="Path to SQLite database file.")
+@click.option("--port", default=8765, show_default=True, help="Port to listen on.")
+@click.option("--host", default="127.0.0.1", show_default=True, help="Host to bind.")
+def server_start(db, port, host):
+    """Start the tstreams API server."""
+    env = os.environ.copy()
+    if db:
+        env["TSTREAMS_DB"] = db
+    env["TSTREAMS_PORT"] = str(port)
+    click.echo(f"Starting tstreams on {host}:{port} …")
+    click.echo(f"Dashboard → http://{host}:{port}/dashboard")
+    # Prefer uv run if available, fall back to sys.executable
+    import shutil
+    uv = shutil.which("uv")
+    if uv:
+        cmd = [uv, "run", "uvicorn", "api:app", "--host", host, "--port", str(port)]
+    else:
+        cmd = [sys.executable, "-m", "uvicorn", "api:app", "--host", host, "--port", str(port)]
+    subprocess.run(cmd, env=env)
+
+
+# ── Project ───────────────────────────────────────────────────────────────────
+
+@cli.group()
+def project():
+    """Manage projects."""
+    pass
+
+
+@project.command("list")
+def project_list():
+    """List all known projects."""
+    rows = _api("GET", "/projects")
+    if not rows:
+        click.echo("No projects yet.")
+        return
+    for p in rows:
+        click.echo(f"  {p}")
+
+
+@project.command("detect")
+def project_detect():
+    """Show which project tstreams would auto-detect from the current directory."""
+    p = _detect_project()
+    click.echo(click.style(f"✔ Detected project: {p}", fg="cyan"))
+
+
+# ── Epic ─────────────────────────────────────────────────────────────────────
+
+@cli.group()
+def epic():
+    """Manage epics."""
+    pass
+
+
+@epic.command("create")
+@click.argument("title")
+@click.option("--project", "proj", default=None, help="Project name (default: auto-detect)")
+def epic_create(title, proj):
+    """Create a new epic."""
+    data = _api("POST", "/epics", json={"title": title, "project": proj or _detect_project()})
+    click.echo(click.style(f"✔ Epic #{data['id']} created: [{data['project']}] {data['title']}", fg="green"))
+
+
+@epic.command("list")
+@click.option("--project", "proj", default=None, help="Filter by project (default: auto-detect). Use --all for all projects.")
+@click.option("--all", "all_projects", is_flag=True, help="Show epics from all projects.")
+def epic_list(proj, all_projects):
+    """List all epics."""
+    params = {} if all_projects else {"project": proj or _detect_project()}
+    rows = _api("GET", "/epics", params=params)
+    if not rows:
+        click.echo("No epics yet.")
+        return
+    click.echo(f"{'ID':<5} {'PROJECT':<16} {'STATUS':<12} {'PROGRESS':<12} TITLE")
+    click.echo("─" * 72)
+    for e in rows:
+        done = e["done_count"] or 0
+        total = e["task_count"] or 0
+        pct = f"{done}/{total}"
+        color = "green" if e["status"] == "done" else "white"
+        click.echo(click.style(f"{e['id']:<5} {e['project']:<16} {e['status']:<12} {pct:<12} {e['title']}", fg=color))
+
+
+# ── Task ──────────────────────────────────────────────────────────────────────
+
+@cli.group()
+def task():
+    """Manage tasks."""
+    pass
+
+
+@task.command("create")
+@click.argument("title")
+@click.option("--epic", "epic_id", type=int, default=None, help="Parent epic ID.")
+@click.option("--deps", default=None, help="Comma-separated dependency task IDs.")
+@click.option("--desc", default=None, help="Task description.")
+@click.option("--project", "proj", default=None, help="Project name (default: auto-detect)")
+def task_create(title, epic_id, deps, desc, proj):
+    """Create a new task."""
+    dep_list = [int(d.strip()) for d in deps.split(",")] if deps else None
+    data = _api("POST", "/tasks", json={
+        "title": title,
+        "description": desc,
+        "epic_id": epic_id,
+        "deps": dep_list,
+        "project": proj or _detect_project(),
+    })
+    click.echo(click.style(f"✔ Task #{data['id']} created: {data['title']}", fg="green"))
+
+
+@task.command("list")
+@click.option("--epic", "epic_id", type=int, default=None)
+@click.option("--status", default=None, help="Filter by status: pending, in_progress, done, blocked")
+@click.option("--owner", default=None, help="Filter by agent owner.")
+@click.option("--project", "proj", default=None, help="Filter by project (default: auto-detect). Use --all for all projects.")
+@click.option("--all", "all_projects", is_flag=True, help="Show tasks from all projects.")
+def task_list(epic_id, status, owner, proj, all_projects):
+    """List tasks."""
+    params = {}
+    if not all_projects:
+        params["project"] = proj or _detect_project()
+    if epic_id:
+        params["epic_id"] = epic_id
+    if status:
+        params["status"] = status
+    if owner:
+        params["owner"] = owner
+    rows = _api("GET", "/tasks", params=params)
+    if not rows:
+        click.echo("No tasks found.")
+        return
+    click.echo(f"{'ID':<5} {'STATUS':<12} {'OWNER':<15} TITLE")
+    click.echo("─" * 65)
+    for t in rows:
+        icon = STATUS_EMOJI.get(t["status"], "?")
+        color = STATUS_COLOR.get(t["status"], "white")
+        owner_str = t["owner"] or "—"
+        line = f"{t['id']:<5} {icon} {t['status']:<10} {owner_str:<15} {t['title']}"
+        click.echo(click.style(line, fg=color))
+        if t["status"] == "blocked" and t.get("blocked_reason"):
+            click.echo(click.style(f"      ↳ {t['blocked_reason']}", fg="yellow"))
+
+
+@task.command("claim")
+@click.argument("task_id", type=int)
+@click.option("--agent", "agent_id", required=True, envvar="TSTREAMS_AGENT", help="Agent identifier.")
+def task_claim(task_id, agent_id):
+    """Claim a task (atomic)."""
+    _api("POST", f"/tasks/{task_id}/claim", json={"agent_id": agent_id})
+    click.echo(click.style(f"✔ Task #{task_id} claimed by {agent_id}", fg="cyan"))
+
+
+@task.command("heartbeat")
+@click.argument("task_id", type=int)
+@click.option("--agent", "agent_id", required=True, envvar="TSTREAMS_AGENT", help="Agent identifier.")
+def task_heartbeat(task_id, agent_id):
+    """Extend the lease on a claimed task."""
+    _api("POST", f"/tasks/{task_id}/heartbeat", json={"agent_id": agent_id})
+    click.echo(f"♥ Heartbeat sent for task #{task_id}")
+
+
+@task.command("complete")
+@click.argument("task_id", type=int)
+@click.option("--agent", "agent_id", required=True, envvar="TSTREAMS_AGENT", help="Agent identifier.")
+def task_complete(task_id, agent_id):
+    """Mark a task as done."""
+    _api("POST", f"/tasks/{task_id}/complete", json={"agent_id": agent_id})
+    click.echo(click.style(f"✔ Task #{task_id} completed by {agent_id}", fg="green"))
+
+
+@task.command("block")
+@click.argument("task_id", type=int)
+@click.option("--agent", "agent_id", required=True, envvar="TSTREAMS_AGENT", help="Agent identifier.")
+@click.option("--reason", required=True, help="Why the task is blocked.")
+def task_block(task_id, agent_id, reason):
+    """Mark a task as blocked."""
+    _api("POST", f"/tasks/{task_id}/block", json={"agent_id": agent_id, "reason": reason})
+    click.echo(click.style(f"✘ Task #{task_id} blocked: {reason}", fg="yellow"))
+
+
+@task.command("unblock")
+@click.argument("task_id", type=int)
+def task_unblock(task_id):
+    """Unblock a task (reset to pending)."""
+    _api("POST", f"/tasks/{task_id}/unblock")
+    click.echo(click.style(f"✔ Task #{task_id} unblocked", fg="green"))
+
+
+@task.command("show")
+@click.argument("task_id", type=int)
+def task_show(task_id):
+    """Show full details of a task."""
+    t = _api("GET", f"/tasks/{task_id}")
+    icon = STATUS_EMOJI.get(t["status"], "?")
+    color = STATUS_COLOR.get(t["status"], "white")
+    click.echo(click.style(f"\n{icon} Task #{t['id']}: {t['title']}", fg=color, bold=True))
+    click.echo(f"  Status:  {t['status']}")
+    click.echo(f"  Owner:   {t['owner'] or '—'}")
+    click.echo(f"  Epic:    {t['epic_id'] or '—'}")
+    if t.get("description"):
+        click.echo(f"  Desc:    {t['description']}")
+    if t.get("blocked_reason"):
+        click.echo(click.style(f"  Blocked: {t['blocked_reason']}", fg="red"))
+    click.echo()
+
+
+# ── Decision ──────────────────────────────────────────────────────────────────
+
+@cli.group()
+def decision():
+    """Manage decisions."""
+    pass
+
+
+@decision.command("add")
+@click.argument("title")
+@click.option("--content", required=True, help="Decision content / rationale.")
+@click.option("--epic", "epic_id", type=int, default=None)
+def decision_add(title, content, epic_id):
+    """Record a decision."""
+    data = _api("POST", "/decisions", json={"title": title, "content": content, "epic_id": epic_id})
+    click.echo(click.style(f"✔ Decision #{data['id']} recorded: {data['title']}", fg="green"))
+
+
+@decision.command("list")
+@click.option("--epic", "epic_id", type=int, default=None)
+def decision_list(epic_id):
+    """List decisions."""
+    params = {"epic_id": epic_id} if epic_id else {}
+    rows = _api("GET", "/decisions", params=params)
+    if not rows:
+        click.echo("No decisions yet.")
+        return
+    for d in rows:
+        click.echo(click.style(f"#{d['id']} {d['title']}", bold=True))
+        click.echo(f"   {d['content']}")
+
+
+# ── Agent ─────────────────────────────────────────────────────────────────────
+
+@cli.group()
+def agent():
+    """Manage agents."""
+    pass
+
+
+@agent.command("register")
+@click.argument("agent_id")
+def agent_register(agent_id):
+    """Register an agent."""
+    _api("POST", "/agents", json={"agent_id": agent_id})
+    click.echo(click.style(f"✔ Agent '{agent_id}' registered", fg="green"))
+
+
+@agent.command("list")
+def agent_list():
+    """List registered agents."""
+    rows = _api("GET", "/agents")
+    if not rows:
+        click.echo("No agents registered.")
+        return
+    now = int(time.time())
+    click.echo(f"{'AGENT':<20} {'LAST SEEN':<15} CURRENT TASK")
+    click.echo("─" * 55)
+    for a in rows:
+        age = now - a["last_heartbeat"]
+        age_str = f"{age}s ago"
+        task_str = f"#{a['current_task']}" if a["current_task"] else "idle"
+        color = "green" if age < 120 else "yellow" if age < 600 else "red"
+        click.echo(click.style(f"{a['id']:<20} {age_str:<15} {task_str}", fg=color))
+
+
+# ── Status (live feed in terminal) ────────────────────────────────────────────
+
+@cli.command("status")
+@click.option("--lines", default=20, show_default=True, help="Number of recent events to show.")
+def status(lines):
+    """Show current operational status."""
+    epics = _api("GET", "/epics")
+    tasks = _api("GET", "/tasks")
+    agents = _api("GET", "/agents")
+
+    now = int(time.time())
+
+    click.echo(click.style("\n── Epics ─────────────────────────────────────", bold=True))
+    for e in epics:
+        done = e["done_count"] or 0
+        total = e["task_count"] or 0
+        bar_len = 20
+        filled = int((done / total) * bar_len) if total else 0
+        bar = "█" * filled + "░" * (bar_len - filled)
+        pct = f"{int((done/total)*100)}%" if total else "0%"
+        click.echo(f"  #{e['id']} {e['title'][:30]:<30} [{bar}] {pct}")
+
+    click.echo(click.style("\n── Active Tasks ──────────────────────────────", bold=True))
+    active = [t for t in tasks if t["status"] == "in_progress"]
+    blocked = [t for t in tasks if t["status"] == "blocked"]
+    if not active and not blocked:
+        click.echo("  No active tasks.")
+    for t in active:
+        click.echo(click.style(f"  ⟳ #{t['id']} [{t['owner']}] {t['title']}", fg="cyan"))
+    for t in blocked:
+        click.echo(click.style(f"  ✘ #{t['id']} BLOCKED — {t.get('blocked_reason','')}", fg="red"))
+
+    click.echo(click.style("\n── Agents ────────────────────────────────────", bold=True))
+    if not agents:
+        click.echo("  No agents registered.")
+    for a in agents:
+        age = now - a["last_heartbeat"]
+        task_str = f"task #{a['current_task']}" if a["current_task"] else "idle"
+        color = "green" if age < 120 else "yellow" if age < 600 else "red"
+        click.echo(click.style(f"  {a['id']:<20} {task_str}  (last seen {age}s ago)", fg=color))
+
+    click.echo(click.style("\n── Pending ───────────────────────────────────", bold=True))
+    pending = [t for t in tasks if t["status"] == "pending"]
+    click.echo(f"  {len(pending)} task(s) waiting to be claimed.")
+    click.echo()
+
+
+if __name__ == "__main__":
+    cli()

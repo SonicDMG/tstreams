@@ -1,0 +1,503 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>tstreams — dashboard</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg:       #0d1117;
+    --surface:  #161b22;
+    --border:   #30363d;
+    --text:     #e6edf3;
+    --muted:    #8b949e;
+    --green:    #3fb950;
+    --cyan:     #39d0d8;
+    --red:      #f85149;
+    --yellow:   #d29922;
+    --blue:     #58a6ff;
+    --purple:   #bc8cff;
+    --accent:   #1f6feb;
+  }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, "Segoe UI", system-ui, sans-serif;
+    font-size: 14px;
+    line-height: 1.6;
+  }
+
+  header {
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    padding: 12px 24px;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    position: sticky;
+    top: 0;
+    z-index: 10;
+  }
+
+  header h1 { font-size: 16px; font-weight: 600; letter-spacing: 0.02em; }
+  header h1 span { color: var(--cyan); }
+
+  #conn-status {
+    font-size: 12px;
+    padding: 2px 8px;
+    border-radius: 12px;
+    background: var(--border);
+    color: var(--muted);
+  }
+  #conn-status.live { background: #1a3a1a; color: var(--green); }
+  #conn-status.error { background: #3a1a1a; color: var(--red); }
+
+  .refresh-btn {
+    margin-left: auto;
+    background: var(--accent);
+    color: #fff;
+    border: none;
+    padding: 4px 14px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 13px;
+  }
+  .refresh-btn:hover { opacity: 0.85; }
+
+  main {
+    max-width: 1100px;
+    margin: 0 auto;
+    padding: 24px 16px;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 20px;
+  }
+
+  .full-width { grid-column: 1 / -1; }
+
+  section {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    overflow: hidden;
+  }
+
+  section h2 {
+    font-size: 13px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--muted);
+    padding: 10px 16px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  section h2 .count {
+    background: var(--border);
+    color: var(--text);
+    font-size: 11px;
+    padding: 1px 6px;
+    border-radius: 10px;
+    font-weight: 500;
+  }
+
+  table { width: 100%; border-collapse: collapse; }
+  th {
+    text-align: left;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    padding: 8px 16px;
+    border-bottom: 1px solid var(--border);
+  }
+  td { padding: 8px 16px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+  tr:last-child td { border-bottom: none; }
+  tr.flash { animation: flash 1s ease-out; }
+
+  @keyframes flash {
+    0%   { background: rgba(63, 185, 80, 0.2); }
+    100% { background: transparent; }
+  }
+
+  .badge {
+    display: inline-block;
+    font-size: 11px;
+    padding: 2px 8px;
+    border-radius: 10px;
+    font-weight: 500;
+  }
+  .badge-pending     { background: #21262d; color: var(--muted); }
+  .badge-in_progress { background: #0e2a3a; color: var(--cyan); }
+  .badge-done        { background: #1a3a1a; color: var(--green); }
+  .badge-blocked     { background: #3a1a1a; color: var(--red); }
+  .badge-open        { background: #21262d; color: var(--muted); }
+
+  .agent-dot {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    margin-right: 6px;
+  }
+  .dot-live    { background: var(--green); box-shadow: 0 0 4px var(--green); }
+  .dot-stale   { background: var(--yellow); }
+  .dot-dead    { background: var(--red); }
+
+  .progress-bar {
+    height: 6px;
+    background: var(--border);
+    border-radius: 3px;
+    overflow: hidden;
+    width: 100px;
+    display: inline-block;
+    vertical-align: middle;
+  }
+  .progress-fill {
+    height: 100%;
+    background: var(--green);
+    border-radius: 3px;
+    transition: width 0.4s ease;
+  }
+
+  /* event feed */
+  #event-feed {
+    font-family: "SF Mono", "Fira Code", monospace;
+    font-size: 12px;
+    max-height: 260px;
+    overflow-y: auto;
+    padding: 8px 16px;
+  }
+  .event-row {
+    display: flex;
+    gap: 10px;
+    padding: 3px 0;
+    border-bottom: 1px solid rgba(48,54,61,0.5);
+    animation: fadeIn 0.3s ease;
+  }
+  .event-row:last-child { border-bottom: none; }
+  @keyframes fadeIn { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; } }
+
+  .event-ts   { color: var(--muted); min-width: 75px; }
+  .event-type { min-width: 140px; }
+  .event-type.task_claimed     { color: var(--cyan); }
+  .event-type.task_completed   { color: var(--green); }
+  .event-type.task_blocked     { color: var(--red); }
+  .event-type.heartbeat        { color: var(--muted); }
+  .event-type.task_created     { color: var(--blue); }
+  .event-type.epic_created     { color: var(--purple); }
+  .event-type.agent_registered { color: var(--yellow); }
+  .event-detail { color: var(--muted); }
+
+  .empty { padding: 24px 16px; color: var(--muted); text-align: center; font-size: 13px; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>t<span>streams</span></h1>
+  <span id="conn-status">connecting…</span>
+  <label for="project-select" style="color:var(--muted);font-size:12px;margin-left:auto">Project:</label>
+  <select id="project-select" onchange="onProjectChange()" style="
+    background:var(--surface);color:var(--text);border:1px solid var(--border);
+    border-radius:6px;padding:3px 10px;font-size:13px;cursor:pointer;min-width:140px">
+    <option value="">All projects</option>
+  </select>
+  <button class="refresh-btn" onclick="loadAll()">↻ Refresh</button>
+</header>
+
+<main>
+
+  <!-- Epics -->
+  <section class="full-width">
+    <h2>Epics <span class="count" id="epic-count">0</span></h2>
+    <table>
+      <thead><tr><th>ID</th><th>Title</th><th>Status</th><th>Progress</th><th>Tasks</th></tr></thead>
+      <tbody id="epic-tbody"><tr><td colspan="5" class="empty">Loading…</td></tr></tbody>
+    </table>
+  </section>
+
+  <!-- Active Tasks -->
+  <section>
+    <h2>Active Tasks <span class="count" id="active-count">0</span></h2>
+    <table>
+      <thead><tr><th>ID</th><th>Title</th><th>Owner</th><th>Status</th></tr></thead>
+      <tbody id="active-tbody"><tr><td colspan="4" class="empty">No active tasks</td></tr></tbody>
+    </table>
+  </section>
+
+  <!-- Blocked Tasks -->
+  <section>
+    <h2>Blocked <span class="count" id="blocked-count">0</span></h2>
+    <table>
+      <thead><tr><th>ID</th><th>Title</th><th>Reason</th></tr></thead>
+      <tbody id="blocked-tbody"><tr><td colspan="3" class="empty">No blocked tasks</td></tr></tbody>
+    </table>
+  </section>
+
+  <!-- Agents -->
+  <section>
+    <h2>Agents <span class="count" id="agent-count">0</span></h2>
+    <table>
+      <thead><tr><th>Agent</th><th>Status</th><th>Working On</th><th>Last Seen</th></tr></thead>
+      <tbody id="agent-tbody"><tr><td colspan="4" class="empty">No agents registered</td></tr></tbody>
+    </table>
+  </section>
+
+  <!-- Pending Tasks -->
+  <section>
+    <h2>Pending <span class="count" id="pending-count">0</span></h2>
+    <table>
+      <thead><tr><th>ID</th><th>Title</th><th>Epic</th></tr></thead>
+      <tbody id="pending-tbody"><tr><td colspan="3" class="empty">No pending tasks</td></tr></tbody>
+    </table>
+  </section>
+
+  <!-- Live Event Feed -->
+  <section class="full-width">
+    <h2>Live Event Feed</h2>
+    <div id="event-feed"><div class="empty">Waiting for events…</div></div>
+  </section>
+
+</main>
+
+<script>
+const API = '';  // same origin
+const MAX_EVENTS = 100;
+
+let lastEventId = 0;
+let evtSource = null;
+let currentProject = '';  // '' = all projects
+
+// ── Data store ────────────────────────────────────────────────────────────────
+let state = { epics: [], tasks: [], agents: [], projects: [] };
+
+// ── Fetch helpers ─────────────────────────────────────────────────────────────
+async function get(path) {
+  const r = await fetch(API + path);
+  if (!r.ok) throw new Error(`${r.status} ${path}`);
+  return r.json();
+}
+
+function projectParams() {
+  return currentProject ? `?project=${encodeURIComponent(currentProject)}` : '';
+}
+
+async function loadAll() {
+  try {
+    const projectQ = projectParams();
+    const [epics, tasks, agents, projects] = await Promise.all([
+      get('/epics' + projectQ),
+      get('/tasks' + projectQ),
+      get('/agents'),
+      get('/projects'),
+    ]);
+    state = { epics, tasks, agents, projects };
+    renderAll();
+    updateProjectDropdown();
+  } catch(e) {
+    console.error('loadAll error', e);
+  }
+}
+
+function updateProjectDropdown() {
+  const sel = document.getElementById('project-select');
+  const current = sel.value;
+  // preserve existing options beyond "All projects"
+  while (sel.options.length > 1) sel.remove(1);
+  for (const p of state.projects) {
+    const opt = document.createElement('option');
+    opt.value = p;
+    opt.textContent = p;
+    if (p === current) opt.selected = true;
+    sel.appendChild(opt);
+  }
+}
+
+function onProjectChange() {
+  currentProject = document.getElementById('project-select').value;
+  // reconnect SSE with new project filter
+  connectSSE();
+  loadAll();
+}
+
+// ── Renderers ─────────────────────────────────────────────────────────────────
+
+function badge(status) {
+  return `<span class="badge badge-${status}">${status}</span>`;
+}
+
+function renderAll() {
+  renderEpics();
+  renderActiveTasks();
+  renderBlockedTasks();
+  renderPendingTasks();
+  renderAgents();
+}
+
+function renderEpics() {
+  const tbody = document.getElementById('epic-tbody');
+  const { epics, tasks } = state;
+  document.getElementById('epic-count').textContent = epics.length;
+  if (!epics.length) { tbody.innerHTML = '<tr><td colspan="5" class="empty">No epics yet</td></tr>'; return; }
+  tbody.innerHTML = epics.map(e => {
+    const done = e.done_count || 0;
+    const total = e.task_count || 0;
+    const pct = total ? Math.round((done/total)*100) : 0;
+    return `<tr>
+      <td>#${e.id}</td>
+      <td>${esc(e.title)}</td>
+      <td>${badge(e.status)}</td>
+      <td>
+        <span class="progress-bar"><span class="progress-fill" style="width:${pct}%"></span></span>
+        <span style="margin-left:8px;color:var(--muted);font-size:12px">${pct}%</span>
+      </td>
+      <td style="color:var(--muted)">${done}/${total}</td>
+    </tr>`;
+  }).join('');
+}
+
+function renderActiveTasks() {
+  const tbody = document.getElementById('active-tbody');
+  const active = state.tasks.filter(t => t.status === 'in_progress');
+  document.getElementById('active-count').textContent = active.length;
+  if (!active.length) { tbody.innerHTML = '<tr><td colspan="4" class="empty">No active tasks</td></tr>'; return; }
+  tbody.innerHTML = active.map(t => `<tr id="task-${t.id}">
+    <td>#${t.id}</td>
+    <td>${esc(t.title)}</td>
+    <td style="color:var(--cyan)">${esc(t.owner || '—')}</td>
+    <td>${badge(t.status)}</td>
+  </tr>`).join('');
+}
+
+function renderBlockedTasks() {
+  const tbody = document.getElementById('blocked-tbody');
+  const blocked = state.tasks.filter(t => t.status === 'blocked');
+  document.getElementById('blocked-count').textContent = blocked.length;
+  if (!blocked.length) { tbody.innerHTML = '<tr><td colspan="3" class="empty">No blocked tasks</td></tr>'; return; }
+  tbody.innerHTML = blocked.map(t => `<tr>
+    <td>#${t.id}</td>
+    <td>${esc(t.title)}</td>
+    <td style="color:var(--red)">${esc(t.blocked_reason || '—')}</td>
+  </tr>`).join('');
+}
+
+function renderPendingTasks() {
+  const tbody = document.getElementById('pending-tbody');
+  const pending = state.tasks.filter(t => t.status === 'pending');
+  document.getElementById('pending-count').textContent = pending.length;
+  if (!pending.length) { tbody.innerHTML = '<tr><td colspan="3" class="empty">No pending tasks</td></tr>'; return; }
+  tbody.innerHTML = pending.map(t => `<tr>
+    <td>#${t.id}</td>
+    <td>${esc(t.title)}</td>
+    <td style="color:var(--muted)">${t.epic_id ? '#'+t.epic_id : '—'}</td>
+  </tr>`).join('');
+}
+
+function renderAgents() {
+  const tbody = document.getElementById('agent-tbody');
+  const now = Math.floor(Date.now()/1000);
+  document.getElementById('agent-count').textContent = state.agents.length;
+  if (!state.agents.length) { tbody.innerHTML = '<tr><td colspan="4" class="empty">No agents registered</td></tr>'; return; }
+  tbody.innerHTML = state.agents.map(a => {
+    const age = now - a.last_heartbeat;
+    const dotClass = age < 120 ? 'dot-live' : age < 600 ? 'dot-stale' : 'dot-dead';
+    const statusLabel = age < 120 ? 'live' : age < 600 ? 'stale' : 'offline';
+    const task = a.current_task ? `#${a.current_task}` : 'idle';
+    return `<tr>
+      <td><span class="agent-dot ${dotClass}"></span>${esc(a.id)}</td>
+      <td style="color:var(--muted)">${statusLabel}</td>
+      <td style="color:var(--cyan)">${task}</td>
+      <td style="color:var(--muted)">${ageSince(age)}</td>
+    </tr>`;
+  }).join('');
+}
+
+// ── Event feed ────────────────────────────────────────────────────────────────
+
+function appendEvent(ev) {
+  const feed = document.getElementById('event-feed');
+  // remove placeholder
+  const empty = feed.querySelector('.empty');
+  if (empty) empty.remove();
+
+  const time = new Date(ev.ts * 1000).toLocaleTimeString();
+  const detail = ev.agent_id
+    ? (ev.task_id ? `${ev.agent_id} → task #${ev.task_id}` : ev.agent_id)
+    : (ev.task_id ? `task #${ev.task_id}` : '');
+
+  const div = document.createElement('div');
+  div.className = 'event-row';
+  div.innerHTML = `
+    <span class="event-ts">${time}</span>
+    <span class="event-type ${ev.type}">${ev.type}</span>
+    <span class="event-detail">${esc(detail)}</span>
+  `;
+  feed.insertBefore(div, feed.firstChild);
+
+  // cap at MAX_EVENTS
+  while (feed.children.length > MAX_EVENTS) feed.removeChild(feed.lastChild);
+}
+
+// ── SSE connection ────────────────────────────────────────────────────────────
+
+function connectSSE() {
+  if (evtSource) evtSource.close();
+  const projectParam = currentProject ? `&project=${encodeURIComponent(currentProject)}` : '';
+  evtSource = new EventSource(`${API}/events?lastEventId=${lastEventId}${projectParam}`);
+
+  evtSource.onopen = () => {
+    const el = document.getElementById('conn-status');
+    el.textContent = '● live';
+    el.className = 'live';
+  };
+
+  evtSource.onmessage = (e) => {
+    const ev = JSON.parse(e.data);
+    lastEventId = ev.id;
+    appendEvent(ev);
+    // refresh data tables on state-changing events
+    const stateChangers = ['task_claimed','task_completed','task_blocked','task_created',
+                           'epic_created','agent_registered','heartbeat'];
+    if (stateChangers.includes(ev.type)) {
+      loadAll();
+    }
+  };
+
+  evtSource.onerror = () => {
+    const el = document.getElementById('conn-status');
+    el.textContent = '✘ disconnected';
+    el.className = 'error';
+    evtSource.close();
+    setTimeout(connectSSE, 3000);  // auto-reconnect
+  };
+}
+
+// ── Utils ─────────────────────────────────────────────────────────────────────
+
+function esc(s) {
+  if (!s) return '';
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+function ageSince(secs) {
+  if (secs < 60) return `${secs}s ago`;
+  if (secs < 3600) return `${Math.floor(secs/60)}m ago`;
+  return `${Math.floor(secs/3600)}h ago`;
+}
+
+// ── Boot ──────────────────────────────────────────────────────────────────────
+loadAll();
+connectSSE();
+// refresh agent heartbeat display every 30s
+setInterval(renderAgents, 30000);
+</script>
+</body>
+</html>

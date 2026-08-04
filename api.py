@@ -1,0 +1,263 @@
+"""
+api.py — FastAPI application for tstreams.
+
+Exposes REST endpoints for task coordination and an SSE stream
+that the dashboard consumes for real-time updates.
+"""
+
+import asyncio
+import json
+import os
+import time
+from contextlib import asynccontextmanager
+from pathlib import Path
+from typing import AsyncGenerator, Optional
+
+from fastapi import Depends, FastAPI, HTTPException, Query
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import HTMLResponse, StreamingResponse
+from fastapi.staticfiles import StaticFiles
+
+import db as database
+import github as github_sync
+from models import (
+    AgentOut,
+    AgentRegister,
+    DecisionCreate,
+    DecisionOut,
+    EpicCreate,
+    EpicOut,
+    EventOut,
+    OkResponse,
+    TaskBlock,
+    TaskClaim,
+    TaskComplete,
+    TaskCreate,
+    TaskHeartbeat,
+    TaskOut,
+)
+
+# ── Config ────────────────────────────────────────────────────────────────────
+
+DB_PATH = Path(os.environ.get("TSTREAMS_DB", database.DEFAULT_DB))
+PORT = int(os.environ.get("TSTREAMS_PORT", 8765))
+LEASE_TTL = int(os.environ.get("TSTREAMS_LEASE_TTL", database.LEASE_TTL))
+
+# ── DB connection (single shared connection with WAL) ─────────────────────────
+
+_conn = None
+
+
+def get_conn():
+    return _conn
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    global _conn
+    _conn = database.get_db(DB_PATH)
+    database.init_schema(_conn)
+    github_sync.start_sync_worker(_conn)
+    yield
+    _conn.close()
+
+
+# ── App ───────────────────────────────────────────────────────────────────────
+
+app = FastAPI(title="tstreams", version="0.1.0", lifespan=lifespan)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# ── Dashboard (served from dashboard/index.html) ──────────────────────────────
+
+DASHBOARD_PATH = Path(__file__).parent / "dashboard" / "index.html"
+
+
+@app.get("/dashboard", response_class=HTMLResponse, include_in_schema=False)
+async def dashboard():
+    if not DASHBOARD_PATH.exists():
+        return HTMLResponse("<h1>Dashboard not found</h1><p>Run from the tstreams repo root.</p>", status_code=404)
+    return HTMLResponse(DASHBOARD_PATH.read_text())
+
+
+# ── SSE event stream ──────────────────────────────────────────────────────────
+
+async def _event_generator(conn, last_id: int, project: str = None) -> AsyncGenerator[str, None]:
+    """Tail the events table and push new rows as SSE messages."""
+    cursor = last_id
+    while True:
+        rows = database.tail_events(conn, since_id=cursor, project=project)
+        for row in rows:
+            cursor = row["id"]
+            data = json.dumps({
+                "id": row["id"],
+                "project": row["project"],
+                "task_id": row["task_id"],
+                "agent_id": row["agent_id"],
+                "type": row["type"],
+                "payload": row["payload"],
+                "ts": row["ts"],
+            })
+            yield f"data: {data}\n\n"
+        await asyncio.sleep(0.5)
+
+
+@app.get("/events", include_in_schema=False)
+async def events(
+    last_event_id: int = Query(0, alias="lastEventId"),
+    project: Optional[str] = Query(None),
+    conn=Depends(get_conn),
+):
+    return StreamingResponse(
+        _event_generator(conn, last_event_id, project=project),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+# ── Epics ─────────────────────────────────────────────────────────────────────
+
+@app.get("/projects")
+async def list_projects(conn=Depends(get_conn)):
+    return database.list_projects(conn)
+
+
+@app.post("/epics", response_model=EpicOut, status_code=201)
+async def create_epic(body: EpicCreate, conn=Depends(get_conn)):
+    epic_id = database.create_epic(conn, body.title, body.project or "default")
+    epic = database.get_epic(conn, epic_id)
+    return {**dict(epic), "task_count": 0, "done_count": 0}
+
+
+@app.get("/epics", response_model=list[EpicOut])
+async def list_epics(project: Optional[str] = None, conn=Depends(get_conn)):
+    rows = database.list_epics(conn, project=project)
+    return [dict(r) for r in rows]
+
+
+@app.get("/epics/{epic_id}", response_model=EpicOut)
+async def get_epic(epic_id: int, conn=Depends(get_conn)):
+    row = database.get_epic(conn, epic_id)
+    if not row:
+        raise HTTPException(404, "Epic not found")
+    tasks = database.list_tasks(conn, epic_id=epic_id)
+    done = sum(1 for t in tasks if t["status"] == "done")
+    return {**dict(row), "task_count": len(tasks), "done_count": done}
+
+
+# ── Tasks ─────────────────────────────────────────────────────────────────────
+
+@app.post("/tasks", response_model=TaskOut, status_code=201)
+async def create_task(body: TaskCreate, conn=Depends(get_conn)):
+    task_id = database.create_task(
+        conn, body.title, body.description, body.epic_id, body.deps,
+        project=body.project or "default",
+    )
+    return dict(database.get_task(conn, task_id))
+
+
+@app.get("/tasks", response_model=list[TaskOut])
+async def list_tasks(
+    epic_id: Optional[int] = None,
+    status: Optional[str] = None,
+    owner: Optional[str] = None,
+    project: Optional[str] = None,
+    conn=Depends(get_conn),
+):
+    rows = database.list_tasks(conn, epic_id=epic_id, status=status, owner=owner, project=project)
+    return [dict(r) for r in rows]
+
+
+@app.get("/tasks/{task_id}", response_model=TaskOut)
+async def get_task(task_id: int, conn=Depends(get_conn)):
+    row = database.get_task(conn, task_id)
+    if not row:
+        raise HTTPException(404, "Task not found")
+    return dict(row)
+
+
+@app.post("/tasks/{task_id}/claim", response_model=OkResponse)
+async def claim_task(task_id: int, body: TaskClaim, conn=Depends(get_conn)):
+    ok = database.claim_task(conn, task_id, body.agent_id, LEASE_TTL)
+    if not ok:
+        raise HTTPException(409, "Task already claimed or not pending")
+    return {"ok": True}
+
+
+@app.post("/tasks/{task_id}/heartbeat", response_model=OkResponse)
+async def heartbeat(task_id: int, body: TaskHeartbeat, conn=Depends(get_conn)):
+    ok = database.heartbeat(conn, task_id, body.agent_id, LEASE_TTL)
+    if not ok:
+        raise HTTPException(404, "No active lease for this task/agent")
+    return {"ok": True}
+
+
+@app.post("/tasks/{task_id}/complete", response_model=OkResponse)
+async def complete_task(task_id: int, body: TaskComplete, conn=Depends(get_conn)):
+    ok = database.complete_task(conn, task_id, body.agent_id)
+    if not ok:
+        raise HTTPException(409, "Task not owned by this agent")
+    return {"ok": True}
+
+
+@app.post("/tasks/{task_id}/block", response_model=OkResponse)
+async def block_task(task_id: int, body: TaskBlock, conn=Depends(get_conn)):
+    ok = database.block_task(conn, task_id, body.agent_id, body.reason)
+    if not ok:
+        raise HTTPException(409, "Task not owned by this agent")
+    return {"ok": True}
+
+
+@app.post("/tasks/{task_id}/unblock", response_model=OkResponse)
+async def unblock_task(task_id: int, conn=Depends(get_conn)):
+    ok = database.unblock_task(conn, task_id)
+    if not ok:
+        raise HTTPException(409, "Task is not blocked")
+    return {"ok": True}
+
+
+# ── Decisions ─────────────────────────────────────────────────────────────────
+
+@app.post("/decisions", response_model=DecisionOut, status_code=201)
+async def create_decision(body: DecisionCreate, conn=Depends(get_conn)):
+    dec_id = database.create_decision(conn, body.title, body.content, body.epic_id)
+    rows = database.list_decisions(conn)
+    row = next(r for r in rows if r["id"] == dec_id)
+    return dict(row)
+
+
+@app.get("/decisions", response_model=list[DecisionOut])
+async def list_decisions(epic_id: Optional[int] = None, conn=Depends(get_conn)):
+    rows = database.list_decisions(conn, epic_id=epic_id)
+    return [dict(r) for r in rows]
+
+
+# ── Agents ────────────────────────────────────────────────────────────────────
+
+@app.post("/agents", response_model=AgentOut, status_code=201)
+async def register_agent(body: AgentRegister, conn=Depends(get_conn)):
+    database.register_agent(conn, body.agent_id)
+    rows = database.list_agents(conn)
+    row = next(r for r in rows if r["id"] == body.agent_id)
+    return dict(row)
+
+
+@app.get("/agents", response_model=list[AgentOut])
+async def list_agents(conn=Depends(get_conn)):
+    rows = database.list_agents(conn)
+    return [dict(r) for r in rows]
+
+
+# ── Health ────────────────────────────────────────────────────────────────────
+
+@app.get("/health")
+async def health():
+    return {"status": "ok", "ts": int(time.time())}
