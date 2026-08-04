@@ -72,6 +72,7 @@ class TaskOut(BaseModel):
     blocked_reason: Optional[str]
     created_at: int
     updated_at: int
+    github_issue_number: Optional[int] = None
 
 
 class DecisionOut(BaseModel):
@@ -103,3 +104,17 @@ class EventOut(BaseModel):
 class OkResponse(BaseModel):
     ok: bool
     message: Optional[str] = None
+
+
+class GithubSyncOut(BaseModel):
+    task_id: int
+    issue_number: int
+    repo: str
+    synced_at: int
+    github_updated_at: int
+    tstreams_updated_at: int
+
+
+class IssueLink(BaseModel):
+    issue_number: int
+    repo: Optional[str] = None

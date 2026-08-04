@@ -14,24 +14,36 @@ The server runs at `http://localhost:8765`. The project name is `tstreams`.
 
 ### Agent workflow (mandatory for every task)
 
+**The dashboard shows LIVE agent status. Every state change must be reported immediately — not at the end.**
+
 ```bash
 # Pick up work
 ts task list --status pending
 
-# Claim before touching any code (atomic — prevents agent collisions)
+# 1. CLAIM before touching any code (atomic — prevents agent collisions)
 ts task claim <id> --agent <your-agent-id>
 
-# Every 5 minutes while working
+# 2. HEARTBEAT every 5 minutes while working — keeps the dashboard live
 ts task heartbeat <id> --agent <your-agent-id>
 
-# On completion
+# 3. COMPLETE immediately when done — do not batch completions at the end
 ts task complete <id> --agent <your-agent-id>
 
-# If blocked
+# 4. BLOCK immediately if stuck — do not silently continue
 ts task block <id> --agent <your-agent-id> --reason "<why>"
+ts task unblock <id>  # once resolved
 ```
 
 Set `TSTREAMS_AGENT=<your-agent-id>` to avoid repeating `--agent` on every command.
+
+### Live update discipline
+
+- **Claim → work → complete** must happen in that order, one task at a time.
+- Do not claim multiple tasks at once unless they are truly parallel and independent.
+- Do not complete a task until the work is fully done and validated.
+- Send a heartbeat before any long operation (file writes, shell commands, API calls).
+- If you finish a task and immediately start the next, claim the next **before** doing any work on it.
+- The dashboard is the human's view of what you are doing right now — keep it accurate.
 
 ### Design decisions
 

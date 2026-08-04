@@ -1,0 +1,5 @@
+project = "your-project-name"
+
+# Optional: GitHub bidirectional sync
+# github_repo  = "owner/repo"
+# github_token = "${GITHUB_TOKEN}"   # reference an env var — never hardcode

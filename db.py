@@ -90,7 +90,10 @@ def init_schema(conn: sqlite3.Connection) -> None:
         CREATE TABLE IF NOT EXISTS github_sync (
             task_id     INTEGER PRIMARY KEY REFERENCES tasks(id),
             issue_number INTEGER NOT NULL,
-            synced_at   INTEGER NOT NULL DEFAULT (unixepoch())
+            repo        TEXT NOT NULL DEFAULT '',
+            synced_at   INTEGER NOT NULL DEFAULT (unixepoch()),
+            github_updated_at  INTEGER NOT NULL DEFAULT 0,
+            tstreams_updated_at INTEGER NOT NULL DEFAULT 0
         );
     """)
     conn.commit()
@@ -109,6 +112,17 @@ def _migrate(conn: sqlite3.Connection) -> None:
     existing = {row[1] for row in conn.execute("PRAGMA table_info(events)")}
     if "project" not in existing:
         conn.execute("ALTER TABLE events ADD COLUMN project TEXT")
+    # github_sync new columns
+    existing = {row[1] for row in conn.execute("PRAGMA table_info(github_sync)")}
+    if "repo" not in existing:
+        conn.execute("ALTER TABLE github_sync ADD COLUMN repo TEXT NOT NULL DEFAULT ''")
+    if "github_updated_at" not in existing:
+        conn.execute("ALTER TABLE github_sync ADD COLUMN github_updated_at INTEGER NOT NULL DEFAULT 0")
+    if "tstreams_updated_at" not in existing:
+        conn.execute("ALTER TABLE github_sync ADD COLUMN tstreams_updated_at INTEGER NOT NULL DEFAULT 0")
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_github_sync_repo ON github_sync(repo, issue_number)"
+    )
     conn.commit()
 
 
@@ -221,6 +235,7 @@ def claim_task(conn, task_id: int, agent_id: str, ttl: int = LEASE_TTL) -> bool:
     conn.commit()
     task = get_task(conn, task_id)
     project = task["project"] if task else None
+    set_tstreams_updated_at(conn, task_id)
     _emit(conn, project, task_id, agent_id, "task_claimed", None)
     return True
 
@@ -253,6 +268,7 @@ def complete_task(conn, task_id: int, agent_id: str) -> bool:
     conn.execute("DELETE FROM leases WHERE task_id = ?", (task_id,))
     conn.execute("UPDATE agents SET current_task = NULL WHERE id = ?", (agent_id,))
     conn.commit()
+    set_tstreams_updated_at(conn, task_id)
     _emit(conn, project, task_id, agent_id, "task_completed", None)
     return True
 
@@ -267,6 +283,7 @@ def block_task(conn, task_id: int, agent_id: str, reason: str) -> bool:
     task = get_task(conn, task_id)
     project = task["project"] if task else None
     conn.commit()
+    set_tstreams_updated_at(conn, task_id)
     _emit(conn, project, task_id, agent_id, "task_blocked", f'{{"reason": "{reason}"}}')
     return True
 
@@ -277,6 +294,8 @@ def unblock_task(conn, task_id: int) -> bool:
         (task_id,),
     )
     conn.commit()
+    if cur.rowcount > 0:
+        set_tstreams_updated_at(conn, task_id)
     return cur.rowcount > 0
 
 
@@ -338,3 +357,89 @@ def tail_events(conn, since_id: int = 0, project: str = None) -> list:
 def get_last_event_id(conn) -> int:
     row = conn.execute("SELECT MAX(id) FROM events").fetchone()
     return row[0] or 0
+
+
+# ── GitHub sync helpers ───────────────────────────────────────────────────────
+
+def enroll_issue(conn, task_id: int, issue_number: int, repo: str) -> None:
+    """Link a task to a GitHub issue (INSERT OR REPLACE)."""
+    conn.execute(
+        """INSERT OR REPLACE INTO github_sync
+           (task_id, issue_number, repo, synced_at, github_updated_at, tstreams_updated_at)
+           VALUES (?, ?, ?, 0, 0, unixepoch())""",
+        (task_id, issue_number, repo),
+    )
+    conn.commit()
+
+
+def unenroll_issue(conn, task_id: int) -> None:
+    """Remove the GitHub issue link for a task."""
+    conn.execute("DELETE FROM github_sync WHERE task_id = ?", (task_id,))
+    conn.commit()
+
+
+def get_synced_tasks(conn, repo: str) -> list:
+    """All tasks enrolled for a given repo with their github_sync row joined."""
+    return conn.execute("""
+        SELECT t.*, gs.issue_number, gs.repo, gs.synced_at,
+               gs.github_updated_at, gs.tstreams_updated_at
+        FROM tasks t
+        JOIN github_sync gs ON gs.task_id = t.id
+        WHERE gs.repo = ?
+    """, (repo,)).fetchall()
+
+
+def get_task_by_issue(conn, repo: str, issue_number: int):
+    """Lookup task by repo + issue_number."""
+    return conn.execute("""
+        SELECT t.*, gs.issue_number, gs.repo, gs.synced_at,
+               gs.github_updated_at, gs.tstreams_updated_at
+        FROM tasks t
+        JOIN github_sync gs ON gs.task_id = t.id
+        WHERE gs.repo = ? AND gs.issue_number = ?
+    """, (repo, issue_number)).fetchone()
+
+
+def update_task_from_github(conn, task_id: int, title: str, description: str,
+                             status: str, owner: Optional[str],
+                             github_updated_at: int) -> bool:
+    """
+    Update task from GitHub inbound data.
+    Skips if local tstreams_updated_at is newer (conflict resolution).
+    Returns True if update was applied.
+    """
+    cur = conn.execute("""
+        UPDATE tasks SET title = ?, description = ?, status = ?,
+               owner = ?, updated_at = unixepoch()
+        WHERE id = ? AND id IN (
+            SELECT task_id FROM github_sync
+            WHERE task_id = ? AND tstreams_updated_at < ?
+        )
+    """, (title, description, status, owner, task_id, task_id, github_updated_at))
+    if cur.rowcount > 0:
+        conn.execute(
+            "UPDATE github_sync SET github_updated_at = ? WHERE task_id = ?",
+            (github_updated_at, task_id),
+        )
+        conn.commit()
+        return True
+    return False
+
+
+def set_tstreams_updated_at(conn, task_id: int) -> None:
+    """Mark github_sync row as locally updated (called after mutations)."""
+    conn.execute(
+        "UPDATE github_sync SET tstreams_updated_at = unixepoch() WHERE task_id = ?",
+        (task_id,),
+    )
+    conn.commit()
+
+
+def get_all_enrolled(conn) -> list:
+    """All enrolled task↔issue pairs (for GET /issues endpoint)."""
+    return conn.execute("""
+        SELECT gs.task_id, gs.issue_number, gs.repo, gs.synced_at,
+               gs.github_updated_at, gs.tstreams_updated_at
+        FROM github_sync gs
+        ORDER BY gs.task_id
+    """).fetchall()

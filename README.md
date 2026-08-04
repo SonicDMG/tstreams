@@ -106,13 +106,48 @@ tstreams does **not** require this file. It does **not** create, modify, or inje
 
 ## GitHub sync
 
-When `TSTREAMS_GITHUB_TOKEN` and `TSTREAMS_GITHUB_REPO` are set, a background worker:
+When `TSTREAMS_GITHUB_TOKEN` and `TSTREAMS_GITHUB_REPO` are set, a background worker runs full **bidirectional** sync:
 
-1. Watches for tasks with a `github_sync` mapping
-2. Closes the linked GitHub issue when the task is marked `done`
-3. Adds a comment: `✅ Completed via tstreams: <task title>`
+**Outbound (tstreams → GitHub):**
+- Closes the linked GitHub issue when a task is marked `done` (adds a `✅ Completed via tstreams` comment)
+- Keeps issue title, body, and assignees in sync with the task
+- Applies `ts:pending` / `ts:in_progress` / `ts:blocked` / `ts:done` labels
 
-Sync is one-way (tstreams → GitHub). GitHub Issues are the human view; tstreams is the agent coordination layer.
+**Inbound (GitHub → tstreams):**
+- Polls for issues updated since the last cycle
+- Updates task title, description, status, and owner from GitHub
+- Conflict resolution: if the local task was modified more recently, the inbound update is skipped
+
+### Setup
+
+```bash
+export TSTREAMS_GITHUB_TOKEN=<PAT with repo scope>
+export TSTREAMS_GITHUB_REPO=owner/repo
+# or add to .tstreams.toml:
+# github_token = "${GITHUB_TOKEN}"
+# github_repo  = "owner/repo"
+```
+
+### Linking tasks to issues
+
+```bash
+# Link an existing task to an existing GitHub issue
+ts issue link <task_id> <issue_number>
+
+# Or create a new GitHub issue when creating a task
+ts task create "Implement auth" --epic 1 --github
+
+# List all linked pairs
+ts issue list
+
+# Trigger an immediate sync (instead of waiting for the interval)
+ts issue sync
+
+# Remove a link
+ts issue unlink <task_id>
+```
+
+Poll interval is configurable via `TSTREAMS_SYNC_INTERVAL` (default `30` seconds).
 
 ---
 
@@ -146,21 +181,21 @@ Or set `TSTREAMS_AGENT=<your-agent-id>` and omit `--agent` from every command.
 ## Architecture
 
 ```
-GitHub Issues  ←── one-way sync ───┐
-                                    │
-                         ┌──────────────────┐
-                         │   tstreams API   │
-                         │                  │
-                         │  SQLite + WAL    │
-                         │  Atomic claims   │
-                         │  Leases          │
-                         │  Heartbeats      │
-                         │  Event stream    │
-                         └──────────────────┘
-                              ▲       ▲
-                         CLI  │       │  Dashboard (SSE)
-                              │       │
-                         Agents     Browser
+GitHub Issues  ←──── bidirectional sync ────┐
+                                             │
+                              ┌──────────────────┐
+                              │   tstreams API   │
+                              │                  │
+                              │  SQLite + WAL    │
+                              │  Atomic claims   │
+                              │  Leases          │
+                              │  Heartbeats      │
+                              │  Event stream    │
+                              └──────────────────┘
+                                   ▲       ▲
+                              CLI  │       │  Dashboard (SSE)
+                                   │       │
+                              Agents     Browser
 ```
 
 ---

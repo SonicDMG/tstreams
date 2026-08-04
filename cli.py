@@ -228,7 +228,8 @@ def task():
 @click.option("--deps", default=None, help="Comma-separated dependency task IDs.")
 @click.option("--desc", default=None, help="Task description.")
 @click.option("--project", "proj", default=None, help="Project name (default: auto-detect)")
-def task_create(title, epic_id, deps, desc, proj):
+@click.option("--github", is_flag=True, default=False, help="Create a linked GitHub issue after task creation.")
+def task_create(title, epic_id, deps, desc, proj, github):
     """Create a new task."""
     dep_list = [int(d.strip()) for d in deps.split(",")] if deps else None
     data = _api("POST", "/tasks", json={
@@ -239,6 +240,10 @@ def task_create(title, epic_id, deps, desc, proj):
         "project": proj or _detect_project(),
     })
     click.echo(click.style(f"✔ Task #{data['id']} created: {data['title']}", fg="green"))
+    if github:
+        result = _api("POST", f"/tasks/{data['id']}/github-issue")
+        if result.get("message"):
+            click.echo(click.style(f"  ↳ GitHub issue: {result['message']}", fg="cyan"))
 
 
 @task.command("list")
@@ -335,6 +340,61 @@ def task_show(task_id):
     if t.get("blocked_reason"):
         click.echo(click.style(f"  Blocked: {t['blocked_reason']}", fg="red"))
     click.echo()
+
+
+# ── Issue ─────────────────────────────────────────────────────────────────────
+
+@cli.group()
+def issue():
+    """Manage GitHub issue links."""
+    pass
+
+
+@issue.command("link")
+@click.argument("task_id", type=int)
+@click.argument("issue_number", type=int)
+@click.option("--repo", default=None, help="GitHub repo (owner/repo). Defaults to TSTREAMS_GITHUB_REPO.")
+def issue_link(task_id, issue_number, repo):
+    """Link a task to a GitHub issue."""
+    payload = {"issue_number": issue_number}
+    if repo:
+        payload["repo"] = repo
+    _api("POST", f"/tasks/{task_id}/link", json=payload)
+    click.echo(click.style(f"✔ Task #{task_id} linked to issue #{issue_number}", fg="green"))
+
+
+@issue.command("unlink")
+@click.argument("task_id", type=int)
+def issue_unlink(task_id):
+    """Remove the GitHub issue link from a task."""
+    _api("DELETE", f"/tasks/{task_id}/link")
+    click.echo(click.style(f"✔ Task #{task_id} unlinked from GitHub", fg="green"))
+
+
+@issue.command("list")
+def issue_list():
+    """List all enrolled task↔issue pairs."""
+    rows = _api("GET", "/issues")
+    if not rows:
+        click.echo("No linked issues.")
+        return
+    click.echo(f"{'TASK':<6} {'ISSUE':<8} {'REPO':<30} {'SYNCED':<20} STATUS")
+    click.echo("─" * 75)
+    now = int(time.time())
+    for r in rows:
+        synced = r.get("synced_at") or 0
+        synced_str = f"{now - synced}s ago" if synced else "never"
+        ts_updated = r.get("tstreams_updated_at") or 0
+        gh_updated = r.get("github_updated_at") or 0
+        newer = "local newer" if ts_updated > gh_updated else ("gh newer" if gh_updated > ts_updated else "in sync")
+        click.echo(f"#{r['task_id']:<5} #{r['issue_number']:<7} {r['repo']:<30} {synced_str:<20} {newer}")
+
+
+@issue.command("sync")
+def issue_sync():
+    """Trigger an immediate GitHub sync cycle."""
+    _api("POST", "/issues/sync")
+    click.echo(click.style("✔ Sync triggered", fg="green"))
 
 
 # ── Decision ──────────────────────────────────────────────────────────────────

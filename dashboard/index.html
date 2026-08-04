@@ -191,9 +191,14 @@
   .event-type.task_completed   { color: var(--green); }
   .event-type.task_blocked     { color: var(--red); }
   .event-type.heartbeat        { color: var(--muted); }
-  .event-type.task_created     { color: var(--blue); }
-  .event-type.epic_created     { color: var(--purple); }
-  .event-type.agent_registered { color: var(--yellow); }
+  .event-type.task_created       { color: var(--blue); }
+  .event-type.epic_created       { color: var(--purple); }
+  .event-type.agent_registered   { color: var(--yellow); }
+  .event-type.task_github_linked { color: var(--purple); }
+  .gh-badge { display:inline-block; margin-left:6px; font-size:11px; padding:1px 5px;
+              background:#21262d; color:#58a6ff; border:1px solid #30363d; border-radius:4px;
+              text-decoration:none; }
+  .gh-badge:hover { background:#161b22; }
   .event-detail { color: var(--muted); }
 
   .empty { padding: 24px 16px; color: var(--muted); text-align: center; font-size: 13px; }
@@ -228,8 +233,8 @@
   <section>
     <h2>Active Tasks <span class="count" id="active-count">0</span></h2>
     <table>
-      <thead><tr><th>ID</th><th>Title</th><th>Owner</th><th>Status</th></tr></thead>
-      <tbody id="active-tbody"><tr><td colspan="4" class="empty">No active tasks</td></tr></tbody>
+      <thead><tr><th>ID</th><th>Title</th><th>GitHub</th><th>Owner</th><th>Status</th></tr></thead>
+      <tbody id="active-tbody"><tr><td colspan="5" class="empty">No active tasks</td></tr></tbody>
     </table>
   </section>
 
@@ -255,8 +260,8 @@
   <section>
     <h2>Pending <span class="count" id="pending-count">0</span></h2>
     <table>
-      <thead><tr><th>ID</th><th>Title</th><th>Epic</th></tr></thead>
-      <tbody id="pending-tbody"><tr><td colspan="3" class="empty">No pending tasks</td></tr></tbody>
+      <thead><tr><th>ID</th><th>Title</th><th>GitHub</th><th>Epic</th></tr></thead>
+      <tbody id="pending-tbody"><tr><td colspan="4" class="empty">No pending tasks</td></tr></tbody>
     </table>
   </section>
 
@@ -364,14 +369,22 @@ function renderEpics() {
   }).join('');
 }
 
+function ghBadge(t) {
+  if (!t.github_issue_number) return '—';
+  const repo = t.github_repo || '';
+  const url = repo ? `https://github.com/${repo}/issues/${t.github_issue_number}` : '#';
+  return `<a class="gh-badge" href="${url}" target="_blank" rel="noopener">#${t.github_issue_number} ↗</a>`;
+}
+
 function renderActiveTasks() {
   const tbody = document.getElementById('active-tbody');
   const active = state.tasks.filter(t => t.status === 'in_progress');
   document.getElementById('active-count').textContent = active.length;
-  if (!active.length) { tbody.innerHTML = '<tr><td colspan="4" class="empty">No active tasks</td></tr>'; return; }
+  if (!active.length) { tbody.innerHTML = '<tr><td colspan="5" class="empty">No active tasks</td></tr>'; return; }
   tbody.innerHTML = active.map(t => `<tr id="task-${t.id}">
     <td>#${t.id}</td>
     <td>${esc(t.title)}</td>
+    <td>${ghBadge(t)}</td>
     <td style="color:var(--cyan)">${esc(t.owner || '—')}</td>
     <td>${badge(t.status)}</td>
   </tr>`).join('');
@@ -393,10 +406,11 @@ function renderPendingTasks() {
   const tbody = document.getElementById('pending-tbody');
   const pending = state.tasks.filter(t => t.status === 'pending');
   document.getElementById('pending-count').textContent = pending.length;
-  if (!pending.length) { tbody.innerHTML = '<tr><td colspan="3" class="empty">No pending tasks</td></tr>'; return; }
+  if (!pending.length) { tbody.innerHTML = '<tr><td colspan="4" class="empty">No pending tasks</td></tr>'; return; }
   tbody.innerHTML = pending.map(t => `<tr>
     <td>#${t.id}</td>
     <td>${esc(t.title)}</td>
+    <td>${ghBadge(t)}</td>
     <td style="color:var(--muted)">${t.epic_id ? '#'+t.epic_id : '—'}</td>
   </tr>`).join('');
 }
@@ -465,7 +479,7 @@ function connectSSE() {
     appendEvent(ev);
     // refresh data tables on state-changing events
     const stateChangers = ['task_claimed','task_completed','task_blocked','task_created',
-                           'epic_created','agent_registered','heartbeat'];
+                           'epic_created','agent_registered','heartbeat','task_github_linked'];
     if (stateChangers.includes(ev.type)) {
       loadAll();
     }

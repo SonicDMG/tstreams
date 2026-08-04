@@ -28,6 +28,8 @@ from models import (
     EpicCreate,
     EpicOut,
     EventOut,
+    GithubSyncOut,
+    IssueLink,
     OkResponse,
     TaskBlock,
     TaskClaim,
@@ -155,13 +157,23 @@ async def get_epic(epic_id: int, conn=Depends(get_conn)):
 
 # ── Tasks ─────────────────────────────────────────────────────────────────────
 
+def _task_with_issue(conn, row) -> dict:
+    """Enrich a task row with github_issue_number from github_sync."""
+    d = dict(row)
+    gs = conn.execute(
+        "SELECT issue_number FROM github_sync WHERE task_id = ?", (d["id"],)
+    ).fetchone()
+    d["github_issue_number"] = gs["issue_number"] if gs else None
+    return d
+
+
 @app.post("/tasks", response_model=TaskOut, status_code=201)
 async def create_task(body: TaskCreate, conn=Depends(get_conn)):
     task_id = database.create_task(
         conn, body.title, body.description, body.epic_id, body.deps,
         project=body.project or "default",
     )
-    return dict(database.get_task(conn, task_id))
+    return _task_with_issue(conn, database.get_task(conn, task_id))
 
 
 @app.get("/tasks", response_model=list[TaskOut])
@@ -173,7 +185,7 @@ async def list_tasks(
     conn=Depends(get_conn),
 ):
     rows = database.list_tasks(conn, epic_id=epic_id, status=status, owner=owner, project=project)
-    return [dict(r) for r in rows]
+    return [_task_with_issue(conn, r) for r in rows]
 
 
 @app.get("/tasks/{task_id}", response_model=TaskOut)
@@ -181,7 +193,7 @@ async def get_task(task_id: int, conn=Depends(get_conn)):
     row = database.get_task(conn, task_id)
     if not row:
         raise HTTPException(404, "Task not found")
-    return dict(row)
+    return _task_with_issue(conn, row)
 
 
 @app.post("/tasks/{task_id}/claim", response_model=OkResponse)
@@ -222,6 +234,58 @@ async def unblock_task(task_id: int, conn=Depends(get_conn)):
     if not ok:
         raise HTTPException(409, "Task is not blocked")
     return {"ok": True}
+
+
+@app.post("/tasks/{task_id}/link", response_model=OkResponse)
+async def link_issue(task_id: int, body: IssueLink, conn=Depends(get_conn)):
+    """Link a task to a GitHub issue."""
+    row = database.get_task(conn, task_id)
+    if not row:
+        raise HTTPException(404, "Task not found")
+    repo = body.repo or GITHUB_REPO
+    if not repo:
+        raise HTTPException(400, "repo required (set body.repo or TSTREAMS_GITHUB_REPO)")
+    database.enroll_issue(conn, task_id, body.issue_number, repo)
+    return {"ok": True}
+
+
+@app.delete("/tasks/{task_id}/link", response_model=OkResponse)
+async def unlink_issue(task_id: int, conn=Depends(get_conn)):
+    """Remove the GitHub issue link for a task."""
+    database.unenroll_issue(conn, task_id)
+    return {"ok": True}
+
+
+@app.post("/tasks/{task_id}/github-issue", response_model=OkResponse)
+async def create_github_issue_for_task(task_id: int, conn=Depends(get_conn)):
+    """Create a GitHub issue for an existing task (used by --github CLI flag)."""
+    token, repo = github_sync._resolve_config()
+    if not token or not repo:
+        raise HTTPException(400, "TSTREAMS_GITHUB_TOKEN and TSTREAMS_GITHUB_REPO must be set")
+    issue_number = github_sync.create_issue_for_task(conn, token, repo, task_id)
+    if issue_number is None:
+        raise HTTPException(500, "Failed to create GitHub issue")
+    return {"ok": True, "message": f"https://github.com/{repo}/issues/{issue_number}"}
+
+
+@app.get("/issues", response_model=list[GithubSyncOut])
+async def list_issues(conn=Depends(get_conn)):
+    """List all enrolled task↔issue pairs."""
+    rows = database.get_all_enrolled(conn)
+    return [dict(r) for r in rows]
+
+
+@app.post("/issues/sync", response_model=OkResponse)
+async def trigger_sync(conn=Depends(get_conn)):
+    """Trigger an immediate sync cycle in the background."""
+    token, repo = github_sync._resolve_config()
+    if not token or not repo:
+        raise HTTPException(400, "TSTREAMS_GITHUB_TOKEN and TSTREAMS_GITHUB_REPO must be set")
+    last_poll_ts = [0]
+    asyncio.get_event_loop().run_in_executor(
+        None, lambda: github_sync._sync_once(conn, token, repo, last_poll_ts)
+    )
+    return {"ok": True, "message": "sync triggered"}
 
 
 # ── Decisions ─────────────────────────────────────────────────────────────────
