@@ -321,23 +321,37 @@
   .dot-stale { background: var(--yellow); }
   .dot-dead  { background: var(--red); }
 
-  /* ── Progress bar ── */
+  /* ── Progress bars (stacked) ── */
+  .progress-stack {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .progress-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
   .progress-bar {
     height: 4px;
     background: var(--border2);
     border-radius: 2px;
     overflow: hidden;
-    width: 90px;
-    display: inline-flex;
-    vertical-align: middle;
+    width: 80px;
+    flex-shrink: 0;
   }
   .progress-fill {
+    display: block;
     height: 100%;
     background: var(--green);
     transition: width 0.4s ease;
-    flex-shrink: 0;
   }
   .progress-fill-decisions { background: var(--purple); }
+  .progress-label {
+    font-size: 10px;
+    color: var(--muted);
+    white-space: nowrap;
+  }
 
   /* ── GitHub badge ── */
   .gh-badge {
@@ -443,7 +457,7 @@
     <div class="panel">
       <div class="panel-header">Epics <span class="count" id="epic-count">0</span></div>
       <table>
-        <thead><tr><th>ID</th><th>Title</th><th>Status</th><th>Progress</th><th>Items</th></tr></thead>
+        <thead><tr><th>ID</th><th>Title</th><th>Status</th><th>Progress</th><th style="display:none"></th></tr></thead>
         <tbody id="epic-tbody"><tr><td colspan="5" class="empty">Loading…</td></tr></tbody>
       </table>
     </div>
@@ -738,16 +752,19 @@ function renderEpics() {
       <td style="font-weight:500">${esc(e.title)}</td>
       <td>${badge(e.status)}</td>
       <td>
-        <span class="progress-bar">
-          <span class="progress-fill" style="width:${taskPct}%"></span>
-          <span class="progress-fill progress-fill-decisions" style="width:${decPct}%"></span>
-        </span>
-        <span style="margin-left:8px;color:var(--muted);font-size:11px">${pct}%</span>
+        <div class="progress-stack">
+          ${decsTotal ? `
+          <div class="progress-row">
+            <div class="progress-bar"><span class="progress-fill progress-fill-decisions" style="width:${Math.round((decsDone/decsTotal)*100)}%"></span></div>
+            <span class="progress-label">${Math.round((decsDone/decsTotal)*100)}% <span style="opacity:0.6">${decsDone}/${decsTotal} decisions</span></span>
+          </div>` : ''}
+          <div class="progress-row">
+            <div class="progress-bar"><span class="progress-fill" style="width:${tasksTotal ? Math.round((tasksDone/tasksTotal)*100) : 0}%"></span></div>
+            <span class="progress-label">${tasksTotal ? Math.round((tasksDone/tasksTotal)*100) : 0}% <span style="opacity:0.6">${tasksDone}/${tasksTotal} tasks</span></span>
+          </div>
+        </div>
       </td>
-      <td style="color:var(--muted);font-size:12px">
-        <span title="tasks">${tasksDone}/${tasksTotal} tasks</span>
-        ${decsTotal ? `<span style="margin-left:8px" title="decisions">${decsDone}/${decsTotal} decisions</span>` : ''}
-      </td>
+      <td style="display:none"></td>
     `;
     tr.addEventListener('click', () => toggleEpicDetail(e.id, tr));
     tbody.appendChild(tr);

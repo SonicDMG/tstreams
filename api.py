@@ -337,6 +337,14 @@ async def list_decisions(epic_id: Optional[int] = None, conn=Depends(get_conn)):
     return [dict(r) for r in rows]
 
 
+@app.post("/decisions/{decision_id}/resolve", response_model=DecisionOut)
+async def resolve_decision(decision_id: int, conn=Depends(get_conn)):
+    row = database.resolve_decision(conn, decision_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="Decision not found")
+    return dict(row)
+
+
 # ── Agents ────────────────────────────────────────────────────────────────────
 
 @app.post("/agents", response_model=AgentOut, status_code=201)

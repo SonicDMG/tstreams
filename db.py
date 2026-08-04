@@ -317,6 +317,16 @@ def list_decisions(conn, epic_id: int = None) -> list:
     return conn.execute("SELECT * FROM decisions ORDER BY id").fetchall()
 
 
+def resolve_decision(conn, decision_id: int) -> dict | None:
+    row = conn.execute("SELECT * FROM decisions WHERE id = ?", (decision_id,)).fetchone()
+    if not row:
+        return None
+    conn.execute("UPDATE decisions SET status = 'decided' WHERE id = ?", (decision_id,))
+    conn.commit()
+    _emit(conn, None, None, None, "decision_resolved", f'{{"decision_id": {decision_id}}}')
+    return conn.execute("SELECT * FROM decisions WHERE id = ?", (decision_id,)).fetchone()
+
+
 # ── Agents ────────────────────────────────────────────────────────────────────
 
 def register_agent(conn, agent_id: str) -> None:

@@ -429,6 +429,14 @@ def decision_list(epic_id):
         click.echo(f"   {d['content']}")
 
 
+@decision.command("resolve")
+@click.argument("decision_id", type=int)
+def decision_resolve(decision_id):
+    """Mark a decision as decided."""
+    data = _api("POST", f"/decisions/{decision_id}/resolve")
+    click.echo(click.style(f"✔ Decision #{data['id']} resolved: {data['title']}", fg="green"))
+
+
 # ── Agent ─────────────────────────────────────────────────────────────────────
 
 @cli.group()
