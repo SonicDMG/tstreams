@@ -514,7 +514,7 @@
     <div class="panel">
       <div class="panel-header">Epics <span class="count" id="epic-count">0</span></div>
       <table>
-        <thead><tr><th>ID</th><th>Project</th><th>Title</th><th>Status</th><th>Progress</th><th style="display:none"></th></tr></thead>
+        <thead><tr><th>ID</th><th>Project</th><th>Title</th><th>Status</th><th>Progress</th><th style="width:32px"></th></tr></thead>
         <tbody id="epic-tbody"><tr><td colspan="6" class="empty">Loading…</td></tr></tbody>
       </table>
     </div>
@@ -813,7 +813,7 @@ function buildEpicRow(e) {
   tr.className = 'clickable epic-row' + (isExpanded ? ' expanded' : '');
   tr.dataset.epicId = e.id;
   tr.innerHTML = `
-    <td class="id-cell" style="color:var(--muted);font-family:monospace;font-size:12px">#${e.id}${copyIcon('epic', e.id, e.title)}</td>
+    <td class="id-cell" style="color:var(--muted);font-family:monospace;font-size:12px">#${e.id}</td>
     <td>${projectPill(e.project)}</td>
     <td style="font-weight:500">${epicTasks.some(isTaskLive) ? '<span class="agent-working"></span>' : ''}${esc(e.title)}</td>
     <td>${badge(e.status)}</td>
@@ -830,7 +830,7 @@ function buildEpicRow(e) {
         </div>
       </div>
     </td>
-    <td style="display:none"></td>
+    <td style="text-align:right;padding-right:12px">${copyIcon('epic', e.id, e.title)}</td>
   `;
   tr.addEventListener('click', () => toggleEpicDetail(e.id, tr));
   return { tr, isExpanded };
@@ -878,14 +878,14 @@ function buildEpicDetailRow(epic) {
   const tasksHtml = epicTasks.length
     ? epicTasks.map(t => {
         const isActive = drillDown && drillDown.type === 'task' && drillDown.id === t.id;
-        return `<span class="dep-chip${isActive ? ' dep-chip-active' : ''}" onclick="openTask(event,${t.id},${epic.id})">#${t.id} ${esc(t.title)} ${badge(t.status)}</span>`;
+        return `<span class="dep-chip${isActive ? ' dep-chip-active' : ''}" onclick="openTask(event,${t.id},${epic.id})">#${t.id} ${esc(t.title)} ${badge(t.status)}${copyIcon('task', t.id, t.title)}</span>`;
       }).join('')
     : '<span class="detail-value muted">No tasks</span>';
 
   const decisionsHtml = epicDecisions.length
     ? epicDecisions.map(d => {
         const isActive = drillDown && drillDown.type === 'decision' && drillDown.id === d.id;
-        return `<span class="dep-chip${isActive ? ' dep-chip-active' : ''}" onclick="openDecision(event,${d.id},${epic.id})">#${d.id} ${esc(d.title)} ${badge(d.status)}</span>`;
+        return `<span class="dep-chip${isActive ? ' dep-chip-active' : ''}" onclick="openDecision(event,${d.id},${epic.id})">#${d.id} ${esc(d.title)} ${badge(d.status)}${copyIcon('decision', d.id, d.title)}</span>`;
       }).join('')
     : '<span class="detail-value muted">No decisions</span>';
 
