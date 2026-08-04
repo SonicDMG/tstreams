@@ -337,7 +337,7 @@
     border: 1px solid transparent;
   }
 
-  /* ── Agent dot ── */
+  /* ── Agent dot / working spinner ── */
   .agent-dot {
     display: inline-block; width: 7px; height: 7px;
     border-radius: 50%; margin-right: 6px;
@@ -345,6 +345,26 @@
   .dot-live  { background: var(--green); box-shadow: 0 0 4px var(--green); }
   .dot-stale { background: var(--yellow); }
   .dot-dead  { background: var(--red); }
+
+  /* braille working indicator — shown when agent is live AND has a task */
+  .agent-working {
+    display: inline-block; margin-right: 6px;
+    color: var(--green); font-size: 14px; line-height: 1;
+  }
+  @keyframes braille-spin {
+    0%   { content: '⣾'; }
+    12%  { content: '⣽'; }
+    25%  { content: '⣻'; }
+    37%  { content: '⢿'; }
+    50%  { content: '⡿'; }
+    62%  { content: '⣟'; }
+    75%  { content: '⣯'; }
+    87%  { content: '⣷'; }
+  }
+  .agent-working::before {
+    content: '⣾';
+    animation: braille-spin steps(1) 0.8s infinite;
+  }
 
   /* ── Progress bars (stacked) ── */
   .progress-stack {
@@ -735,6 +755,12 @@ function badge(status) {
   return `<span class="badge badge-${status}">${status}</span>`;
 }
 
+function isTaskLive(t) {
+  // true when an agent with a fresh heartbeat (<120s) is actively working this task
+  const now = Math.floor(Date.now() / 1000);
+  return state.agents.some(a => a.current_task === t.id && (now - a.last_heartbeat) < 120);
+}
+
 function projectPill(name) {
   if (!name || name === 'default') return '';
   // Deterministic hue from project name string
@@ -777,7 +803,7 @@ function buildEpicRow(e) {
   tr.innerHTML = `
     <td style="color:var(--muted);font-family:monospace;font-size:12px">#${e.id}</td>
     <td>${projectPill(e.project)}</td>
-    <td style="font-weight:500">${esc(e.title)}</td>
+    <td style="font-weight:500">${epicTasks.some(isTaskLive) ? '<span class="agent-working"></span>' : ''}${esc(e.title)}</td>
     <td>${badge(e.status)}</td>
     <td>
       <div class="progress-stack">
@@ -1009,7 +1035,8 @@ function buildTaskRowCells(tbodyId, t) {
   const id = `<td style="color:var(--muted);font-family:monospace;font-size:12px">#${t.id}</td>`;
   const pill = `<td>${projectPill(t.project)}</td>`;
   if (tbodyId === 'active-tbody') {
-    return `${id}${pill}<td style="font-weight:500">${esc(t.title)}</td><td>${ghBadge(t)}</td>
+    const spinner = isTaskLive(t) ? '<span class="agent-working"></span>' : '';
+    return `${id}${pill}<td style="font-weight:500">${spinner}${esc(t.title)}</td><td>${ghBadge(t)}</td>
             <td style="color:var(--cyan);font-size:12px">${esc(t.owner || '—')}</td><td>${badge(t.status)}</td>`;
   }
   if (tbodyId === 'blocked-tbody') {
@@ -1111,11 +1138,15 @@ function renderAgents() {
   if (!state.agents.length) { tbody.innerHTML = '<tr><td colspan="4" class="empty">No agents registered</td></tr>'; return; }
   tbody.innerHTML = state.agents.map(a => {
     const age = now - a.last_heartbeat;
-    const dotClass = age < 120 ? 'dot-live' : age < 600 ? 'dot-stale' : 'dot-dead';
-    const statusLabel = age < 120 ? 'live' : age < 600 ? 'stale' : 'offline';
+    const isLive = age < 120;
+    const dotClass = isLive ? 'dot-live' : age < 600 ? 'dot-stale' : 'dot-dead';
+    const statusLabel = isLive ? 'live' : age < 600 ? 'stale' : 'offline';
     const task = a.current_task ? `#${a.current_task}` : 'idle';
+    const indicator = (isLive && a.current_task)
+      ? `<span class="agent-working"></span>`
+      : `<span class="agent-dot ${dotClass}"></span>`;
     return `<tr>
-      <td><span class="agent-dot ${dotClass}"></span>${esc(a.id)}</td>
+      <td>${indicator}${esc(a.id)}</td>
       <td style="color:var(--muted);font-size:12px">${statusLabel}</td>
       <td style="color:var(--cyan);font-size:12px">${task}</td>
       <td style="color:var(--muted);font-size:12px">${ageSince(age)}</td>
