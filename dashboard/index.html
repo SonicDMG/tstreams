@@ -263,6 +263,19 @@
   tr.epic-row td:first-child { border-left: 3px solid var(--border2); }
   tr.epic-row.expanded td:first-child { border-left: 3px solid var(--cyan); }
 
+  /* Project group header rows in epics table */
+  tr.project-group-header td {
+    padding: 6px 16px 5px;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--muted);
+    background: var(--surface);
+    border-bottom: 1px solid var(--border2);
+    cursor: default;
+  }
+
   /* task rows — left colour by status */
   tr.task-active   td:first-child { border-left: 3px solid var(--cyan); }
   tr.task-blocked  td:first-child { border-left: 3px solid var(--red); }
@@ -311,6 +324,18 @@
   .badge-blocked     { background: rgba(248,81,73,0.15);  color: var(--red); }
   .badge-open        { background: rgba(99,110,123,0.2);  color: var(--muted); }
   .badge-decided     { background: rgba(188,140,255,0.15); color: var(--purple); }
+
+  /* ── Project pill ── */
+  .project-pill {
+    display: inline-block;
+    font-size: 10px;
+    padding: 1px 7px;
+    border-radius: 8px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    white-space: nowrap;
+    border: 1px solid transparent;
+  }
 
   /* ── Agent dot ── */
   .agent-dot {
@@ -457,8 +482,8 @@
     <div class="panel">
       <div class="panel-header">Epics <span class="count" id="epic-count">0</span></div>
       <table>
-        <thead><tr><th>ID</th><th>Title</th><th>Status</th><th>Progress</th><th style="display:none"></th></tr></thead>
-        <tbody id="epic-tbody"><tr><td colspan="5" class="empty">Loading…</td></tr></tbody>
+        <thead><tr><th>ID</th><th>Project</th><th>Title</th><th>Status</th><th>Progress</th><th style="display:none"></th></tr></thead>
+        <tbody id="epic-tbody"><tr><td colspan="6" class="empty">Loading…</td></tr></tbody>
       </table>
     </div>
   </div>
@@ -472,8 +497,8 @@
       <div class="panel">
         <div class="panel-header">Active <span class="count" id="active-count">0</span></div>
         <table>
-          <thead><tr><th>ID</th><th>Title</th><th>GitHub</th><th>Owner</th><th>Status</th></tr></thead>
-          <tbody id="active-tbody"><tr><td colspan="5" class="empty">No active tasks</td></tr></tbody>
+          <thead><tr><th>ID</th><th>Project</th><th>Title</th><th>GitHub</th><th>Owner</th><th>Status</th></tr></thead>
+          <tbody id="active-tbody"><tr><td colspan="6" class="empty">No active tasks</td></tr></tbody>
         </table>
       </div>
 
@@ -481,8 +506,8 @@
       <div class="panel">
         <div class="panel-header">Blocked <span class="count" id="blocked-count">0</span></div>
         <table>
-          <thead><tr><th>ID</th><th>Title</th><th>Reason</th></tr></thead>
-          <tbody id="blocked-tbody"><tr><td colspan="3" class="empty">No blocked tasks</td></tr></tbody>
+          <thead><tr><th>ID</th><th>Project</th><th>Title</th><th>Reason</th></tr></thead>
+          <tbody id="blocked-tbody"><tr><td colspan="4" class="empty">No blocked tasks</td></tr></tbody>
         </table>
       </div>
 
@@ -490,8 +515,8 @@
       <div class="panel">
         <div class="panel-header">Pending <span class="count" id="pending-count">0</span></div>
         <table>
-          <thead><tr><th>ID</th><th>Title</th><th>GitHub</th><th>Epic</th></tr></thead>
-          <tbody id="pending-tbody"><tr><td colspan="4" class="empty">No pending tasks</td></tr></tbody>
+          <thead><tr><th>ID</th><th>Project</th><th>Title</th><th>GitHub</th><th>Epic</th></tr></thead>
+          <tbody id="pending-tbody"><tr><td colspan="5" class="empty">No pending tasks</td></tr></tbody>
         </table>
       </div>
 
@@ -590,6 +615,11 @@ function updateProjectDropdown() {
 
 function onProjectChange() {
   currentProject = document.getElementById('project-select').value;
+  if (currentProject) {
+    localStorage.setItem('ts_project', currentProject);
+  } else {
+    localStorage.removeItem('ts_project');
+  }
   drillDown = null;
   connectSSE();
   loadAll();
@@ -705,6 +735,16 @@ function badge(status) {
   return `<span class="badge badge-${status}">${status}</span>`;
 }
 
+function projectPill(name) {
+  if (!name || name === 'default') return '';
+  // Deterministic hue from project name string
+  let hash = 0;
+  for (let i = 0; i < name.length; i++) hash = (hash * 31 + name.charCodeAt(i)) >>> 0;
+  const hue = hash % 360;
+  const style = `background:hsla(${hue},60%,55%,0.15);color:hsl(${hue},70%,65%);border-color:hsla(${hue},60%,55%,0.3)`;
+  return `<span class="project-pill" style="${style}">${esc(name)}</span>`;
+}
+
 function renderAll() {
   renderBreadcrumb();
   renderEpics();
@@ -717,60 +757,78 @@ function renderAll() {
 
 // ── Epic detail panel (Task 8) ────────────────────────────────────────────────
 
+function buildEpicRow(e) {
+  const epicTasks = state.tasks.filter(t => t.epic_id === e.id);
+  const tasksDone  = epicTasks.filter(t => t.status === 'done').length;
+  const tasksTotal = epicTasks.length;
+  const epicDecisions = state.decisions.filter(d => d.epic_id === e.id);
+  const decsDone  = epicDecisions.filter(d => d.status === 'decided').length;
+  const decsTotal = epicDecisions.length;
+
+  const isExpanded = drillDown && (
+    (drillDown.type === 'epic' && drillDown.id === e.id) ||
+    (drillDown.type === 'task' && drillDown.epicId === e.id) ||
+    (drillDown.type === 'decision' && drillDown.epicId === e.id)
+  );
+
+  const tr = document.createElement('tr');
+  tr.className = 'clickable epic-row' + (isExpanded ? ' expanded' : '');
+  tr.dataset.epicId = e.id;
+  tr.innerHTML = `
+    <td style="color:var(--muted);font-family:monospace;font-size:12px">#${e.id}</td>
+    <td>${projectPill(e.project)}</td>
+    <td style="font-weight:500">${esc(e.title)}</td>
+    <td>${badge(e.status)}</td>
+    <td>
+      <div class="progress-stack">
+        ${decsTotal ? `
+        <div class="progress-row">
+          <div class="progress-bar"><span class="progress-fill progress-fill-decisions" style="width:${Math.round((decsDone/decsTotal)*100)}%"></span></div>
+          <span class="progress-label">${Math.round((decsDone/decsTotal)*100)}% <span style="opacity:0.6">${decsDone}/${decsTotal} decisions</span></span>
+        </div>` : ''}
+        <div class="progress-row">
+          <div class="progress-bar"><span class="progress-fill" style="width:${tasksTotal ? Math.round((tasksDone/tasksTotal)*100) : 0}%"></span></div>
+          <span class="progress-label">${tasksTotal ? Math.round((tasksDone/tasksTotal)*100) : 0}% <span style="opacity:0.6">${tasksDone}/${tasksTotal} tasks</span></span>
+        </div>
+      </div>
+    </td>
+    <td style="display:none"></td>
+  `;
+  tr.addEventListener('click', () => toggleEpicDetail(e.id, tr));
+  return { tr, isExpanded };
+}
+
 function renderEpics() {
   const tbody = document.getElementById('epic-tbody');
   const { epics } = state;
   document.getElementById('epic-count').textContent = epics.length;
-  if (!epics.length) { tbody.innerHTML = '<tr><td colspan="5" class="empty">No epics yet</td></tr>'; return; }
+  if (!epics.length) { tbody.innerHTML = '<tr><td colspan="6" class="empty">No epics yet</td></tr>'; return; }
 
   tbody.innerHTML = '';
+
+  // Group epics by project, preserving original order within each group
+  const groups = new Map();
   for (const e of epics) {
-    const epicTasks = state.tasks.filter(t => t.epic_id === e.id);
-    const tasksDone  = epicTasks.filter(t => t.status === 'done').length;
-    const tasksTotal = epicTasks.length;
-    const epicDecisions = state.decisions.filter(d => d.epic_id === e.id);
-    const decsDone  = epicDecisions.filter(d => d.status === 'decided').length;
-    const decsTotal = epicDecisions.length;
+    const key = e.project || 'default';
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(e);
+  }
 
-    const totalItems = tasksTotal + decsTotal;
-    const totalDone  = tasksDone + decsDone;
-    const pct = totalItems ? Math.round((totalDone / totalItems) * 100) : 0;
-    const taskPct = totalItems ? Math.round((tasksDone / totalItems) * 100) : 0;
-    const decPct  = totalItems ? Math.round((decsDone  / totalItems) * 100) : 0;
+  // If only one project, skip section headers (single-project view)
+  const multiProject = groups.size > 1;
 
-    const isExpanded = drillDown && (
-      (drillDown.type === 'epic' && drillDown.id === e.id) ||
-      (drillDown.type === 'task' && drillDown.epicId === e.id) ||
-      (drillDown.type === 'decision' && drillDown.epicId === e.id)
-    );
+  for (const [project, projectEpics] of groups) {
+    if (multiProject) {
+      const headerTr = document.createElement('tr');
+      headerTr.className = 'project-group-header';
+      headerTr.innerHTML = `<td colspan="6">${esc(project)} <span style="font-weight:400;opacity:0.6">${projectEpics.length} epic${projectEpics.length !== 1 ? 's' : ''}</span></td>`;
+      tbody.appendChild(headerTr);
+    }
 
-    const tr = document.createElement('tr');
-    tr.className = 'clickable epic-row' + (isExpanded ? ' expanded' : '');
-    tr.dataset.epicId = e.id;
-    tr.innerHTML = `
-      <td style="color:var(--muted);font-family:monospace;font-size:12px">#${e.id}</td>
-      <td style="font-weight:500">${esc(e.title)}</td>
-      <td>${badge(e.status)}</td>
-      <td>
-        <div class="progress-stack">
-          ${decsTotal ? `
-          <div class="progress-row">
-            <div class="progress-bar"><span class="progress-fill progress-fill-decisions" style="width:${Math.round((decsDone/decsTotal)*100)}%"></span></div>
-            <span class="progress-label">${Math.round((decsDone/decsTotal)*100)}% <span style="opacity:0.6">${decsDone}/${decsTotal} decisions</span></span>
-          </div>` : ''}
-          <div class="progress-row">
-            <div class="progress-bar"><span class="progress-fill" style="width:${tasksTotal ? Math.round((tasksDone/tasksTotal)*100) : 0}%"></span></div>
-            <span class="progress-label">${tasksTotal ? Math.round((tasksDone/tasksTotal)*100) : 0}% <span style="opacity:0.6">${tasksDone}/${tasksTotal} tasks</span></span>
-          </div>
-        </div>
-      </td>
-      <td style="display:none"></td>
-    `;
-    tr.addEventListener('click', () => toggleEpicDetail(e.id, tr));
-    tbody.appendChild(tr);
-
-    if (isExpanded) {
-      tbody.appendChild(buildEpicDetailRow(e));
+    for (const e of projectEpics) {
+      const { tr, isExpanded } = buildEpicRow(e);
+      tbody.appendChild(tr);
+      if (isExpanded) tbody.appendChild(buildEpicDetailRow(e));
     }
   }
 }
@@ -949,15 +1007,16 @@ function renderTaskTable(tbodyId, tasks, colSpan) {
 
 function buildTaskRowCells(tbodyId, t) {
   const id = `<td style="color:var(--muted);font-family:monospace;font-size:12px">#${t.id}</td>`;
+  const pill = `<td>${projectPill(t.project)}</td>`;
   if (tbodyId === 'active-tbody') {
-    return `${id}<td style="font-weight:500">${esc(t.title)}</td><td>${ghBadge(t)}</td>
+    return `${id}${pill}<td style="font-weight:500">${esc(t.title)}</td><td>${ghBadge(t)}</td>
             <td style="color:var(--cyan);font-size:12px">${esc(t.owner || '—')}</td><td>${badge(t.status)}</td>`;
   }
   if (tbodyId === 'blocked-tbody') {
-    return `${id}<td style="font-weight:500">${esc(t.title)}</td>
+    return `${id}${pill}<td style="font-weight:500">${esc(t.title)}</td>
             <td style="color:var(--red);font-size:12px">${esc(t.blocked_reason || '—')}</td>`;
   }
-  return `${id}<td style="font-weight:500">${esc(t.title)}</td><td>${ghBadge(t)}</td>
+  return `${id}${pill}<td style="font-weight:500">${esc(t.title)}</td><td>${ghBadge(t)}</td>
           <td style="color:var(--muted);font-size:12px">${t.epic_id ? '#'+t.epic_id : '—'}</td>`;
 }
 
@@ -1030,19 +1089,19 @@ function toggleTaskDetail(taskId, epicId) {
 function renderActiveTasks() {
   const active = state.tasks.filter(t => t.status === 'in_progress');
   document.getElementById('active-count').textContent = active.length;
-  renderTaskTable('active-tbody', active, 5);
+  renderTaskTable('active-tbody', active, 6);
 }
 
 function renderBlockedTasks() {
   const blocked = state.tasks.filter(t => t.status === 'blocked');
   document.getElementById('blocked-count').textContent = blocked.length;
-  renderTaskTable('blocked-tbody', blocked, 3);
+  renderTaskTable('blocked-tbody', blocked, 4);
 }
 
 function renderPendingTasks() {
   const pending = state.tasks.filter(t => t.status === 'pending');
   document.getElementById('pending-count').textContent = pending.length;
-  renderTaskTable('pending-tbody', pending, 4);
+  renderTaskTable('pending-tbody', pending, 5);
 }
 
 function renderAgents() {
@@ -1140,6 +1199,7 @@ function appendEvent(ev) {
   div.className = 'event-row';
   div.innerHTML = `
     <span class="event-ts">${time}</span>
+    ${ev.project ? projectPill(ev.project) : ''}
     <span class="event-type ${ev.type}">${ev.type}</span>
     <span class="event-detail">${esc(detail)}</span>
   `;
@@ -1197,6 +1257,11 @@ function ageSince(secs) {
 
 // ── Boot ──────────────────────────────────────────────────────────────────────
 readURL();
+// URL param takes priority; fall back to localStorage
+if (!currentProject) {
+  const saved = localStorage.getItem('ts_project');
+  if (saved) currentProject = saved;
+}
 if (currentProject) {
   document.getElementById('project-select').value = currentProject;
 }
