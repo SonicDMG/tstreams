@@ -169,6 +169,17 @@ def get_epic(conn, epic_id: int):
     return conn.execute("SELECT * FROM epics WHERE id = ?", (epic_id,)).fetchone()
 
 
+def close_epic(conn, epic_id: int) -> bool:
+    cur = conn.execute("UPDATE epics SET status = 'closed' WHERE id = ?", (epic_id,))
+    conn.commit()
+    if cur.rowcount == 0:
+        return False
+    epic = get_epic(conn, epic_id)
+    project = epic["project"] if epic else None
+    _emit(conn, project, None, None, "epic_closed", f'{{"epic_id": {epic_id}}}')
+    return True
+
+
 # ── Tasks ────────────────────────────────────────────────────────────────────
 
 def create_task(conn, title: str, description: str = None, epic_id: int = None,

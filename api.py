@@ -156,6 +156,17 @@ async def get_epic(epic_id: int, conn=Depends(get_conn)):
     return {**dict(row), "task_count": len(tasks), "done_count": done}
 
 
+@app.post("/epics/{epic_id}/close", response_model=EpicOut)
+async def close_epic(epic_id: int, conn=Depends(get_conn)):
+    ok = database.close_epic(conn, epic_id)
+    if not ok:
+        raise HTTPException(404, "Epic not found")
+    row = database.get_epic(conn, epic_id)
+    tasks = database.list_tasks(conn, epic_id=epic_id)
+    done = sum(1 for t in tasks if t["status"] == "done")
+    return {**dict(row), "task_count": len(tasks), "done_count": done}
+
+
 # ── Tasks ─────────────────────────────────────────────────────────────────────
 
 def _task_with_issue(conn, row) -> dict:

@@ -194,6 +194,14 @@ def epic_create(title, proj):
     click.echo(click.style(f"✔ Epic #{data['id']} created: [{data['project']}] {data['title']}", fg="green"))
 
 
+@epic.command("close")
+@click.argument("epic_id", type=int)
+def epic_close(epic_id):
+    """Close an epic."""
+    data = _api("POST", f"/epics/{epic_id}/close")
+    click.echo(click.style(f"✔ Epic #{data['id']} closed: {data['title']}", fg="green"))
+
+
 @epic.command("list")
 @click.option("--project", "proj", default=None, help="Filter by project (default: auto-detect). Use --all for all projects.")
 @click.option("--all", "all_projects", is_flag=True, help="Show epics from all projects.")
