@@ -65,3 +65,23 @@ Filter to this project using the project dropdown → select `tstreams`.
 - One task = one coherent unit of work (ideally ≤ 2 files changed).
 - If you discover new work mid-task, create a new task rather than expanding scope.
 - If the server is not running: `ts server start` (runs in background on port 8765).
+
+### When to invoke tstreams (trigger rules)
+
+**Any application change** — bug fix, UI tweak, refactor, config update — must be tracked:
+
+1. Check for a relevant open epic: `ts epic list`
+2. Create a task under that epic (or a "vibe / ad-hoc improvements" catch-all epic): `ts task create "<what you're doing>" --epic <id>`
+3. Claim it **before** making any file edits: `ts task claim <id>`
+
+**Full feature work** — new page, new API, new user-facing capability — trigger the spec-code mode:
+
+> Before writing any code, ask the user:
+> *"This looks like feature work. Want me to kick off spec-code mode? That will use tstreams to create an epic, design doc, API contract, and task breakdown before we write any code."*
+
+If the user says yes, run the spec-code workflow:
+1. `ts epic create "<feature name>"` — create the epic
+2. Draft a design doc and record it as a decision: `ts decision add "Design: <feature>" --content "<spec>" --epic <id>`
+3. Draft an API/data contract and record it: `ts decision add "Contract: <feature>" --content "<contract>" --epic <id>`
+4. Break the feature into tasks with deps: `ts task create "<task>" --epic <id> --deps <id,id>`
+5. Only then claim the first task and begin coding.

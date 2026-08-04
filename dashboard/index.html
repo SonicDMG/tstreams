@@ -922,7 +922,7 @@ function buildEpicDetailRow(epic) {
       </div>
       <div class="detail-field">
         <span class="detail-label">Status / Owner</span>
-        <span class="detail-value">${badge(activeTask.status)} ${activeTask.owner ? esc(activeTask.owner) : '—'}</span>
+        <span class="detail-value">${badge(activeTask.status)} <span class="badge">${activeTask.owner ? esc(activeTask.owner) : '—'}</span></span>
       </div>
       ${activeTask.blocked_reason ? `
       <div class="detail-field" style="grid-column:1/-1">
