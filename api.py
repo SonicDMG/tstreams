@@ -196,6 +196,18 @@ async def get_task(task_id: int, conn=Depends(get_conn)):
     return _task_with_issue(conn, row)
 
 
+@app.get("/tasks/{task_id}/deps")
+async def get_task_deps(task_id: int, conn=Depends(get_conn)):
+    """Return IDs and titles of tasks this task depends on."""
+    rows = conn.execute(
+        """SELECT t.id, t.title, t.status FROM tasks t
+           JOIN task_deps d ON t.id = d.depends_on
+           WHERE d.task_id = ?""",
+        (task_id,),
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
 @app.post("/tasks/{task_id}/claim", response_model=OkResponse)
 async def claim_task(task_id: int, body: TaskClaim, conn=Depends(get_conn)):
     ok = database.claim_task(conn, task_id, body.agent_id, LEASE_TTL)

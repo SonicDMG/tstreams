@@ -45,6 +45,26 @@
   header h1 { font-size: 16px; font-weight: 600; letter-spacing: 0.02em; }
   header h1 span { color: var(--cyan); }
 
+  /* breadcrumb */
+  #breadcrumb {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 13px;
+    color: var(--muted);
+    min-width: 0;
+    overflow: hidden;
+  }
+  #breadcrumb span:last-child {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
+  }
+  #breadcrumb .crumb { color: var(--blue); cursor: pointer; white-space: nowrap; }
+  #breadcrumb .crumb:hover { text-decoration: underline; }
+  #breadcrumb .sep { color: var(--border); flex-shrink: 0; }
+
   #conn-status {
     font-size: 12px;
     padding: 2px 8px;
@@ -127,6 +147,39 @@
     100% { background: transparent; }
   }
 
+  /* clickable rows */
+  tr.clickable { cursor: pointer; }
+  tr.clickable:hover td { background: rgba(255,255,255,0.03); }
+  tr.expanded td { background: rgba(31, 111, 235, 0.08); }
+
+  /* inline detail panel */
+  tr.detail-row td {
+    padding: 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .detail-panel {
+    padding: 14px 20px;
+    background: #0d1117;
+    border-top: 1px solid var(--border);
+    font-size: 13px;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px 24px;
+  }
+  .detail-panel.single-col { grid-template-columns: 1fr; }
+  .detail-field { display: flex; flex-direction: column; gap: 2px; }
+  .detail-label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
+  .detail-value { color: var(--text); white-space: pre-wrap; word-break: break-word; }
+  .detail-value.muted { color: var(--muted); font-style: italic; }
+  .dep-chip {
+    display: inline-block; margin: 2px 4px 2px 0;
+    background: #21262d; border: 1px solid var(--border);
+    border-radius: 4px; padding: 1px 7px; font-size: 12px; color: var(--blue);
+    cursor: pointer;
+  }
+  .dep-chip:hover { background: #161b22; }
+  .dep-chip-active { background: #0e2a3a; border-color: var(--cyan); color: var(--cyan); }
+
   .badge {
     display: inline-block;
     font-size: 11px;
@@ -202,6 +255,9 @@
   .event-detail { color: var(--muted); }
 
   .empty { padding: 24px 16px; color: var(--muted); text-align: center; font-size: 13px; }
+
+  /* Decisions section */
+  #decisions-section { display: none; }
 </style>
 </head>
 <body>
@@ -209,6 +265,7 @@
 <header>
   <h1>t<span>streams</span></h1>
   <span id="conn-status">connecting…</span>
+  <nav id="breadcrumb"></nav>
   <label for="project-select" style="color:var(--muted);font-size:12px;margin-left:auto">Project:</label>
   <select id="project-select" onchange="onProjectChange()" style="
     background:var(--surface);color:var(--text);border:1px solid var(--border);
@@ -265,6 +322,15 @@
     </table>
   </section>
 
+  <!-- Decisions (shown when an epic is expanded) -->
+  <section class="full-width" id="decisions-section">
+    <h2>Decisions <span class="count" id="decision-count">0</span></h2>
+    <table>
+      <thead><tr><th>ID</th><th>Title</th><th>Epic</th><th>Status</th></tr></thead>
+      <tbody id="decision-tbody"><tr><td colspan="4" class="empty">No decisions</td></tr></tbody>
+    </table>
+  </section>
+
   <!-- Live Event Feed -->
   <section class="full-width">
     <h2>Live Event Feed</h2>
@@ -282,7 +348,11 @@ let evtSource = null;
 let currentProject = '';  // '' = all projects
 
 // ── Data store ────────────────────────────────────────────────────────────────
-let state = { epics: [], tasks: [], agents: [], projects: [] };
+let state = { epics: [], tasks: [], agents: [], projects: [], decisions: [] };
+
+// ── Navigation state ──────────────────────────────────────────────────────────
+// drillDown: null | { type: 'epic', id } | { type: 'task', id, epicId }
+let drillDown = null;
 
 // ── Fetch helpers ─────────────────────────────────────────────────────────────
 async function get(path) {
@@ -291,20 +361,21 @@ async function get(path) {
   return r.json();
 }
 
-function projectParams() {
-  return currentProject ? `?project=${encodeURIComponent(currentProject)}` : '';
+function projectParams(prefix = '?') {
+  return currentProject ? `${prefix}project=${encodeURIComponent(currentProject)}` : '';
 }
 
 async function loadAll() {
   try {
-    const projectQ = projectParams();
-    const [epics, tasks, agents, projects] = await Promise.all([
-      get('/epics' + projectQ),
-      get('/tasks' + projectQ),
+    const pq = projectParams();
+    const [epics, tasks, agents, projects, decisions] = await Promise.all([
+      get('/epics' + pq),
+      get('/tasks' + pq),
       get('/agents'),
       get('/projects'),
+      get('/decisions' + pq),
     ]);
-    state = { epics, tasks, agents, projects };
+    state = { epics, tasks, agents, projects, decisions };
     renderAll();
     updateProjectDropdown();
   } catch(e) {
@@ -315,7 +386,6 @@ async function loadAll() {
 function updateProjectDropdown() {
   const sel = document.getElementById('project-select');
   const current = sel.value;
-  // preserve existing options beyond "All projects"
   while (sel.options.length > 1) sel.remove(1);
   for (const p of state.projects) {
     const opt = document.createElement('option');
@@ -328,9 +398,81 @@ function updateProjectDropdown() {
 
 function onProjectChange() {
   currentProject = document.getElementById('project-select').value;
-  // reconnect SSE with new project filter
+  drillDown = null;
   connectSSE();
   loadAll();
+}
+
+// ── URL deep-link helpers (Task 11) ───────────────────────────────────────────
+
+function pushURL() {
+  const params = new URLSearchParams();
+  if (currentProject) params.set('project', currentProject);
+  if (drillDown) {
+    if (drillDown.type === 'epic') params.set('epic', drillDown.id);
+    if (drillDown.type === 'task') { params.set('task', drillDown.id); if (drillDown.epicId) params.set('epic', drillDown.epicId); }
+    if (drillDown.type === 'decision') { params.set('decision', drillDown.id); if (drillDown.epicId) params.set('epic', drillDown.epicId); }
+  }
+  const qs = params.toString();
+  history.replaceState(null, '', qs ? `?${qs}` : location.pathname);
+}
+
+function readURL() {
+  const p = new URLSearchParams(location.search);
+  if (p.has('project')) currentProject = p.get('project');
+  if (p.has('task')) {
+    drillDown = { type: 'task', id: parseInt(p.get('task')), epicId: p.has('epic') ? parseInt(p.get('epic')) : null };
+  } else if (p.has('epic')) {
+    drillDown = { type: 'epic', id: parseInt(p.get('epic')) };
+  } else if (p.has('decision')) {
+    drillDown = { type: 'decision', id: parseInt(p.get('decision')) };
+  }
+}
+
+// ── Breadcrumb (Task 12) ───────────────────────────────────────────────────────
+
+function renderBreadcrumb() {
+  const nav = document.getElementById('breadcrumb');
+  if (!drillDown) { nav.innerHTML = ''; return; }
+
+  const crumbs = [{ label: 'All Epics', action: () => { drillDown = null; pushURL(); renderAll(); } }];
+
+  if (drillDown.type === 'epic') {
+    const epic = state.epics.find(e => e.id === drillDown.id);
+    crumbs.push({ label: epic ? `Epic #${epic.id}: ${epic.title}` : `Epic #${drillDown.id}`, action: null });
+  } else if (drillDown.type === 'task') {
+    if (drillDown.epicId) {
+      const epic = state.epics.find(e => e.id === drillDown.epicId);
+      crumbs.push({
+        label: epic ? `Epic #${epic.id}: ${epic.title}` : `Epic #${drillDown.epicId}`,
+        action: () => { drillDown = { type: 'epic', id: drillDown.epicId }; pushURL(); renderAll(); }
+      });
+    }
+    const task = state.tasks.find(t => t.id === drillDown.id);
+    crumbs.push({ label: task ? `Task #${task.id}: ${task.title}` : `Task #${drillDown.id}`, action: null });
+  } else if (drillDown.type === 'decision') {
+    if (drillDown.epicId) {
+      const epic = state.epics.find(e => e.id === drillDown.epicId);
+      crumbs.push({
+        label: epic ? `Epic #${epic.id}: ${epic.title}` : `Epic #${drillDown.epicId}`,
+        action: () => { drillDown = { type: 'epic', id: drillDown.epicId }; pushURL(); renderAll(); }
+      });
+    }
+    const dec = state.decisions.find(d => d.id === drillDown.id);
+    crumbs.push({ label: dec ? `Decision #${dec.id}: ${dec.title}` : `Decision #${drillDown.id}`, action: null });
+  }
+
+  nav.innerHTML = crumbs.map((c, i) => {
+    const sep = i > 0 ? '<span class="sep"> / </span>' : '';
+    if (c.action) return `${sep}<span class="crumb" data-crumb="${i}">${esc(c.label)}</span>`;
+    return `${sep}<span>${esc(c.label)}</span>`;
+  }).join('');
+
+  // attach click handlers
+  nav.querySelectorAll('[data-crumb]').forEach(el => {
+    const idx = parseInt(el.dataset.crumb);
+    el.addEventListener('click', crumbs[idx].action);
+  });
 }
 
 // ── Renderers ─────────────────────────────────────────────────────────────────
@@ -340,23 +482,38 @@ function badge(status) {
 }
 
 function renderAll() {
+  renderBreadcrumb();
   renderEpics();
   renderActiveTasks();
   renderBlockedTasks();
   renderPendingTasks();
   renderAgents();
+  renderDecisions();
 }
+
+// ── Epic detail panel (Task 8) ────────────────────────────────────────────────
 
 function renderEpics() {
   const tbody = document.getElementById('epic-tbody');
-  const { epics, tasks } = state;
+  const { epics } = state;
   document.getElementById('epic-count').textContent = epics.length;
   if (!epics.length) { tbody.innerHTML = '<tr><td colspan="5" class="empty">No epics yet</td></tr>'; return; }
-  tbody.innerHTML = epics.map(e => {
+
+  tbody.innerHTML = '';
+  for (const e of epics) {
     const done = e.done_count || 0;
     const total = e.task_count || 0;
     const pct = total ? Math.round((done/total)*100) : 0;
-    return `<tr>
+    const isExpanded = drillDown && (
+      (drillDown.type === 'epic' && drillDown.id === e.id) ||
+      (drillDown.type === 'task' && drillDown.epicId === e.id) ||
+      (drillDown.type === 'decision' && drillDown.epicId === e.id)
+    );
+
+    const tr = document.createElement('tr');
+    tr.className = 'clickable' + (isExpanded ? ' expanded' : '');
+    tr.dataset.epicId = e.id;
+    tr.innerHTML = `
       <td>#${e.id}</td>
       <td>${esc(e.title)}</td>
       <td>${badge(e.status)}</td>
@@ -365,9 +522,160 @@ function renderEpics() {
         <span style="margin-left:8px;color:var(--muted);font-size:12px">${pct}%</span>
       </td>
       <td style="color:var(--muted)">${done}/${total}</td>
-    </tr>`;
-  }).join('');
+    `;
+    tr.addEventListener('click', () => toggleEpicDetail(e.id, tr));
+    tbody.appendChild(tr);
+
+    if (isExpanded) {
+      tbody.appendChild(buildEpicDetailRow(e));
+    }
+  }
 }
+
+function buildEpicDetailRow(epic) {
+  const epicTasks = state.tasks.filter(t => t.epic_id === epic.id);
+  const epicDecisions = state.decisions.filter(d => d.epic_id === epic.id);
+
+  const tasksHtml = epicTasks.length
+    ? epicTasks.map(t => {
+        const isActive = drillDown && drillDown.type === 'task' && drillDown.id === t.id;
+        return `<span class="dep-chip${isActive ? ' dep-chip-active' : ''}" onclick="openTask(event,${t.id},${epic.id})">#${t.id} ${esc(t.title)} ${badge(t.status)}</span>`;
+      }).join('')
+    : '<span class="detail-value muted">No tasks</span>';
+
+  const decisionsHtml = epicDecisions.length
+    ? epicDecisions.map(d => {
+        const isActive = drillDown && drillDown.type === 'decision' && drillDown.id === d.id;
+        return `<span class="dep-chip${isActive ? ' dep-chip-active' : ''}" onclick="openDecision(event,${d.id},${epic.id})">#${d.id} ${esc(d.title)}</span>`;
+      }).join('')
+    : '<span class="detail-value muted">No decisions</span>';
+
+  const detailTr = document.createElement('tr');
+  detailTr.className = 'detail-row';
+  const td = document.createElement('td');
+  td.colSpan = 5;
+
+  // If a decision from this epic is drilled into, show its detail inline
+  const activeDecision = drillDown && drillDown.type === 'decision' && drillDown.epicId === epic.id
+    ? state.decisions.find(d => d.id === drillDown.id)
+    : null;
+
+  let decisionDetailHtml = '';
+  if (activeDecision) {
+    decisionDetailHtml = `
+      <div class="detail-field" style="grid-column:1/-1;border-top:1px solid var(--border);padding-top:10px;margin-top:4px">
+        <span class="detail-label" style="color:var(--purple)">Decision #${activeDecision.id} detail</span>
+      </div>
+      <div class="detail-field" style="grid-column:1/-1">
+        <span class="detail-label">Content</span>
+        <span class="detail-value ${activeDecision.content ? '' : 'muted'}">${activeDecision.content ? esc(activeDecision.content) : 'No content'}</span>
+      </div>
+      <div class="detail-field">
+        <span class="detail-label">Status</span>
+        <span class="detail-value">${badge(activeDecision.status)}</span>
+      </div>
+    `;
+  }
+
+  // If a task from this epic is drilled into, show its detail inline
+  const activeTask = drillDown && drillDown.type === 'task' && drillDown.epicId === epic.id
+    ? state.tasks.find(t => t.id === drillDown.id)
+    : null;
+
+  let taskDetailHtml = '';
+  if (activeTask) {
+    const depsDivId = `deps-epic-${activeTask.id}`;
+    taskDetailHtml = `
+      <div class="detail-field" style="grid-column:1/-1;border-top:1px solid var(--border);padding-top:10px;margin-top:4px">
+        <span class="detail-label" style="color:var(--cyan)">Task #${activeTask.id} detail</span>
+      </div>
+      <div class="detail-field">
+        <span class="detail-label">Description</span>
+        <span class="detail-value ${activeTask.description ? '' : 'muted'}">${activeTask.description ? esc(activeTask.description) : 'No description'}</span>
+      </div>
+      <div class="detail-field">
+        <span class="detail-label">Status / Owner</span>
+        <span class="detail-value">${badge(activeTask.status)} ${activeTask.owner ? esc(activeTask.owner) : '—'}</span>
+      </div>
+      ${activeTask.blocked_reason ? `
+      <div class="detail-field" style="grid-column:1/-1">
+        <span class="detail-label">Block Reason</span>
+        <span class="detail-value" style="color:var(--red)">${esc(activeTask.blocked_reason)}</span>
+      </div>` : ''}
+      <div class="detail-field" style="grid-column:1/-1">
+        <span class="detail-label">Dependencies</span>
+        <div id="${depsDivId}"><span class="detail-value muted">Loading…</span></div>
+      </div>
+    `;
+    // fetch deps async
+    get(`/tasks/${activeTask.id}/deps`).then(deps => {
+      const el = document.getElementById(depsDivId);
+      if (!el) return;
+      if (!deps.length) {
+        el.innerHTML = '<span class="detail-value muted">None</span>';
+      } else {
+        el.innerHTML = deps.map(d =>
+          `<span class="dep-chip" onclick="openTask(event,${d.id},null)">#${d.id} ${esc(d.title)} ${badge(d.status)}</span>`
+        ).join('');
+      }
+    }).catch(() => {
+      const el = document.getElementById(depsDivId);
+      if (el) el.innerHTML = '<span class="detail-value muted">—</span>';
+    });
+  }
+
+  td.innerHTML = `
+    <div class="detail-panel">
+      <div class="detail-field" style="grid-column:1/-1">
+        <span class="detail-label">Tasks</span>
+        <div>${tasksHtml}</div>
+      </div>
+      <div class="detail-field" style="grid-column:1/-1">
+        <span class="detail-label">Decisions</span>
+        <div>${decisionsHtml}</div>
+      </div>
+      ${decisionDetailHtml}
+      ${taskDetailHtml}
+    </div>
+  `;
+  detailTr.appendChild(td);
+  return detailTr;
+}
+
+function toggleEpicDetail(epicId, tr) {
+  if (drillDown && drillDown.type === 'epic' && drillDown.id === epicId) {
+    drillDown = null;
+  } else {
+    drillDown = { type: 'epic', id: epicId };
+  }
+  pushURL();
+  renderAll();
+}
+
+function openTask(evt, taskId, epicId) {
+  evt.stopPropagation();
+  drillDown = { type: 'task', id: taskId, epicId: epicId || null };
+  pushURL();
+  renderAll();
+  setTimeout(() => {
+    const el = document.getElementById(`task-row-${taskId}`);
+    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }, 50);
+}
+
+function openDecision(evt, decisionId, epicId) {
+  evt.stopPropagation();
+  // toggle off if already active
+  if (drillDown && drillDown.type === 'decision' && drillDown.id === decisionId) {
+    drillDown = epicId ? { type: 'epic', id: epicId } : null;
+  } else {
+    drillDown = { type: 'decision', id: decisionId, epicId: epicId || null };
+  }
+  pushURL();
+  renderAll();
+}
+
+// ── Task detail panel (Task 9) ────────────────────────────────────────────────
 
 function ghBadge(t) {
   if (!t.github_issue_number) return '—';
@@ -376,43 +684,126 @@ function ghBadge(t) {
   return `<a class="gh-badge" href="${url}" target="_blank" rel="noopener">#${t.github_issue_number} ↗</a>`;
 }
 
+function renderTaskTable(tbodyId, tasks, colSpan) {
+  const tbody = document.getElementById(tbodyId);
+  if (!tasks.length) {
+    tbody.innerHTML = `<tr><td colspan="${colSpan}" class="empty">No tasks</td></tr>`;
+    return;
+  }
+  tbody.innerHTML = '';
+  for (const t of tasks) {
+    const isExpanded = drillDown && drillDown.type === 'task' && drillDown.id === t.id;
+    const tr = document.createElement('tr');
+    tr.className = 'clickable' + (isExpanded ? ' expanded' : '');
+    tr.id = `task-row-${t.id}`;
+    tr.innerHTML = buildTaskRowCells(tbodyId, t);
+    tr.addEventListener('click', () => toggleTaskDetail(t.id, t.epic_id));
+    tbody.appendChild(tr);
+    if (isExpanded) {
+      tbody.appendChild(buildTaskDetailRow(t, colSpan));
+    }
+  }
+}
+
+function buildTaskRowCells(tbodyId, t) {
+  if (tbodyId === 'active-tbody') {
+    return `<td>#${t.id}</td><td>${esc(t.title)}</td><td>${ghBadge(t)}</td>
+            <td style="color:var(--cyan)">${esc(t.owner || '—')}</td><td>${badge(t.status)}</td>`;
+  }
+  if (tbodyId === 'blocked-tbody') {
+    return `<td>#${t.id}</td><td>${esc(t.title)}</td>
+            <td style="color:var(--red)">${esc(t.blocked_reason || '—')}</td>`;
+  }
+  // pending
+  return `<td>#${t.id}</td><td>${esc(t.title)}</td><td>${ghBadge(t)}</td>
+          <td style="color:var(--muted)">${t.epic_id ? '#'+t.epic_id : '—'}</td>`;
+}
+
+function buildTaskDetailRow(task, colSpan) {
+  const detailTr = document.createElement('tr');
+  detailTr.className = 'detail-row';
+  const td = document.createElement('td');
+  td.colSpan = colSpan;
+
+  // Load deps async and fill in
+  const depsDivId = `deps-${task.id}`;
+  td.innerHTML = `
+    <div class="detail-panel">
+      <div class="detail-field">
+        <span class="detail-label">Description</span>
+        <span class="detail-value ${task.description ? '' : 'muted'}">${task.description ? esc(task.description) : 'No description'}</span>
+      </div>
+      <div class="detail-field">
+        <span class="detail-label">Epic</span>
+        <span class="detail-value">${task.epic_id ? `#${task.epic_id}` : '—'}</span>
+      </div>
+      <div class="detail-field">
+        <span class="detail-label">Owner</span>
+        <span class="detail-value">${task.owner ? esc(task.owner) : '—'}</span>
+      </div>
+      <div class="detail-field">
+        <span class="detail-label">Status</span>
+        <span class="detail-value">${badge(task.status)}</span>
+      </div>
+      ${task.blocked_reason ? `
+      <div class="detail-field" style="grid-column:1/-1">
+        <span class="detail-label">Block Reason</span>
+        <span class="detail-value" style="color:var(--red)">${esc(task.blocked_reason)}</span>
+      </div>` : ''}
+      <div class="detail-field" style="grid-column:1/-1">
+        <span class="detail-label">Dependencies</span>
+        <div id="${depsDivId}"><span class="detail-value muted">Loading…</span></div>
+      </div>
+    </div>
+  `;
+  detailTr.appendChild(td);
+
+  // fetch deps asynchronously
+  get(`/tasks/${task.id}/deps`).then(deps => {
+    const el = document.getElementById(depsDivId);
+    if (!el) return;
+    if (!deps.length) {
+      el.innerHTML = '<span class="detail-value muted">None</span>';
+    } else {
+      el.innerHTML = deps.map(d =>
+        `<span class="dep-chip" onclick="openTask(event,${d.id},null)">#${d.id} ${esc(d.title)} ${badge(d.status)}</span>`
+      ).join('');
+    }
+  }).catch(() => {
+    const el = document.getElementById(depsDivId);
+    if (el) el.innerHTML = '<span class="detail-value muted">—</span>';
+  });
+
+  return detailTr;
+}
+
+function toggleTaskDetail(taskId, epicId) {
+  if (drillDown && drillDown.type === 'task' && drillDown.id === taskId) {
+    // collapse back to epic if we came from one
+    drillDown = epicId ? { type: 'epic', id: epicId } : null;
+  } else {
+    drillDown = { type: 'task', id: taskId, epicId: epicId || null };
+  }
+  pushURL();
+  renderAll();
+}
+
 function renderActiveTasks() {
-  const tbody = document.getElementById('active-tbody');
   const active = state.tasks.filter(t => t.status === 'in_progress');
   document.getElementById('active-count').textContent = active.length;
-  if (!active.length) { tbody.innerHTML = '<tr><td colspan="5" class="empty">No active tasks</td></tr>'; return; }
-  tbody.innerHTML = active.map(t => `<tr id="task-${t.id}">
-    <td>#${t.id}</td>
-    <td>${esc(t.title)}</td>
-    <td>${ghBadge(t)}</td>
-    <td style="color:var(--cyan)">${esc(t.owner || '—')}</td>
-    <td>${badge(t.status)}</td>
-  </tr>`).join('');
+  renderTaskTable('active-tbody', active, 5);
 }
 
 function renderBlockedTasks() {
-  const tbody = document.getElementById('blocked-tbody');
   const blocked = state.tasks.filter(t => t.status === 'blocked');
   document.getElementById('blocked-count').textContent = blocked.length;
-  if (!blocked.length) { tbody.innerHTML = '<tr><td colspan="3" class="empty">No blocked tasks</td></tr>'; return; }
-  tbody.innerHTML = blocked.map(t => `<tr>
-    <td>#${t.id}</td>
-    <td>${esc(t.title)}</td>
-    <td style="color:var(--red)">${esc(t.blocked_reason || '—')}</td>
-  </tr>`).join('');
+  renderTaskTable('blocked-tbody', blocked, 3);
 }
 
 function renderPendingTasks() {
-  const tbody = document.getElementById('pending-tbody');
   const pending = state.tasks.filter(t => t.status === 'pending');
   document.getElementById('pending-count').textContent = pending.length;
-  if (!pending.length) { tbody.innerHTML = '<tr><td colspan="4" class="empty">No pending tasks</td></tr>'; return; }
-  tbody.innerHTML = pending.map(t => `<tr>
-    <td>#${t.id}</td>
-    <td>${esc(t.title)}</td>
-    <td>${ghBadge(t)}</td>
-    <td style="color:var(--muted)">${t.epic_id ? '#'+t.epic_id : '—'}</td>
-  </tr>`).join('');
+  renderTaskTable('pending-tbody', pending, 4);
 }
 
 function renderAgents() {
@@ -434,11 +825,72 @@ function renderAgents() {
   }).join('');
 }
 
+// ── Decision detail panel (Task 10) ──────────────────────────────────────────
+
+function renderDecisions() {
+  const section = document.getElementById('decisions-section');
+  const { decisions } = state;
+
+  // show decisions section if any exist
+  if (!decisions.length) { section.style.display = 'none'; return; }
+  section.style.display = '';
+
+  document.getElementById('decision-count').textContent = decisions.length;
+  const tbody = document.getElementById('decision-tbody');
+  tbody.innerHTML = '';
+
+  for (const d of decisions) {
+    const isExpanded = drillDown && drillDown.type === 'decision' && drillDown.id === d.id;
+    const tr = document.createElement('tr');
+    tr.className = 'clickable' + (isExpanded ? ' expanded' : '');
+    tr.id = `decision-row-${d.id}`;
+    tr.innerHTML = `
+      <td>#${d.id}</td>
+      <td>${esc(d.title)}</td>
+      <td style="color:var(--muted)">${d.epic_id ? '#'+d.epic_id : '—'}</td>
+      <td>${badge(d.status)}</td>
+    `;
+    tr.addEventListener('click', () => toggleDecisionDetail(d.id));
+    tbody.appendChild(tr);
+
+    if (isExpanded) {
+      const detailTr = document.createElement('tr');
+      detailTr.className = 'detail-row';
+      const td = document.createElement('td');
+      td.colSpan = 4;
+      td.innerHTML = `
+        <div class="detail-panel single-col">
+          <div class="detail-field">
+            <span class="detail-label">Content</span>
+            <span class="detail-value">${esc(d.content || '')}</span>
+          </div>
+          ${d.epic_id ? `<div class="detail-field">
+            <span class="detail-label">Epic</span>
+            <span class="dep-chip" onclick="event.stopPropagation();drillDown={type:'epic',id:${d.epic_id}};pushURL();renderAll()">#${d.epic_id}</span>
+          </div>` : ''}
+        </div>
+      `;
+      detailTr.appendChild(td);
+      tbody.appendChild(detailTr);
+    }
+  }
+}
+
+function toggleDecisionDetail(decId) {
+  // preserve epicId if available from state
+  const dec = state.decisions.find(d => d.id === decId);
+  const epicId = dec ? dec.epic_id : null;
+  drillDown = (drillDown && drillDown.type === 'decision' && drillDown.id === decId)
+    ? (epicId ? { type: 'epic', id: epicId } : null)
+    : { type: 'decision', id: decId, epicId };
+  pushURL();
+  renderAll();
+}
+
 // ── Event feed ────────────────────────────────────────────────────────────────
 
 function appendEvent(ev) {
   const feed = document.getElementById('event-feed');
-  // remove placeholder
   const empty = feed.querySelector('.empty');
   if (empty) empty.remove();
 
@@ -455,8 +907,6 @@ function appendEvent(ev) {
     <span class="event-detail">${esc(detail)}</span>
   `;
   feed.insertBefore(div, feed.firstChild);
-
-  // cap at MAX_EVENTS
   while (feed.children.length > MAX_EVENTS) feed.removeChild(feed.lastChild);
 }
 
@@ -477,7 +927,6 @@ function connectSSE() {
     const ev = JSON.parse(e.data);
     lastEventId = ev.id;
     appendEvent(ev);
-    // refresh data tables on state-changing events
     const stateChangers = ['task_claimed','task_completed','task_blocked','task_created',
                            'epic_created','agent_registered','heartbeat','task_github_linked'];
     if (stateChangers.includes(ev.type)) {
@@ -490,7 +939,7 @@ function connectSSE() {
     el.textContent = '✘ disconnected';
     el.className = 'error';
     evtSource.close();
-    setTimeout(connectSSE, 3000);  // auto-reconnect
+    setTimeout(connectSSE, 3000);
   };
 }
 
@@ -508,9 +957,15 @@ function ageSince(secs) {
 }
 
 // ── Boot ──────────────────────────────────────────────────────────────────────
+readURL();
+// sync project dropdown with URL
+if (currentProject) {
+  const sel = document.getElementById('project-select');
+  // options may not be populated yet; just set value and let updateProjectDropdown handle it
+  sel.value = currentProject;
+}
 loadAll();
 connectSSE();
-// refresh agent heartbeat display every 30s
 setInterval(renderAgents, 30000);
 </script>
 </body>
