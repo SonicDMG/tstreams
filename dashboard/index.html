@@ -328,16 +328,14 @@
     border-radius: 2px;
     overflow: hidden;
     width: 90px;
-    display: inline-block;
+    display: inline-flex;
     vertical-align: middle;
   }
   .progress-fill {
     height: 100%;
     background: var(--green);
-    border-radius: 0;
     transition: width 0.4s ease;
-    display: inline-block;
-    vertical-align: top;
+    flex-shrink: 0;
   }
   .progress-fill-decisions { background: var(--purple); }
 
@@ -713,8 +711,9 @@ function renderEpics() {
 
   tbody.innerHTML = '';
   for (const e of epics) {
-    const tasksDone  = e.done_count || 0;
-    const tasksTotal = e.task_count || 0;
+    const epicTasks = state.tasks.filter(t => t.epic_id === e.id);
+    const tasksDone  = epicTasks.filter(t => t.status === 'done').length;
+    const tasksTotal = epicTasks.length;
     const epicDecisions = state.decisions.filter(d => d.epic_id === e.id);
     const decsDone  = epicDecisions.filter(d => d.status === 'decided').length;
     const decsTotal = epicDecisions.length;
@@ -773,7 +772,7 @@ function buildEpicDetailRow(epic) {
   const decisionsHtml = epicDecisions.length
     ? epicDecisions.map(d => {
         const isActive = drillDown && drillDown.type === 'decision' && drillDown.id === d.id;
-        return `<span class="dep-chip${isActive ? ' dep-chip-active' : ''}" onclick="openDecision(event,${d.id},${epic.id})">#${d.id} ${esc(d.title)}</span>`;
+        return `<span class="dep-chip${isActive ? ' dep-chip-active' : ''}" onclick="openDecision(event,${d.id},${epic.id})">#${d.id} ${esc(d.title)} ${badge(d.status)}</span>`;
       }).join('')
     : '<span class="detail-value muted">No decisions</span>';
 
