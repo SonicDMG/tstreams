@@ -411,12 +411,11 @@
     display: inline-flex; align-items: center; justify-content: center;
     width: 18px; height: 18px; margin-left: 5px;
     background: none; border: none; cursor: pointer;
-    color: var(--muted); opacity: 0; transition: opacity 0.15s, color 0.15s;
+    color: var(--muted); opacity: 0.35; transition: opacity 0.15s, color 0.15s;
     vertical-align: middle; padding: 0; border-radius: 3px; flex-shrink: 0;
   }
-  .copy-btn:hover { color: var(--text); background: var(--surface); }
-  .copy-btn.copied { color: var(--green); opacity: 1 !important; }
-  tr:hover .copy-btn, td:hover .copy-btn { opacity: 0.6; }
+  .copy-btn:hover { color: var(--text); opacity: 1; background: var(--surface); }
+  .copy-btn.copied { color: var(--green); opacity: 1; }
 
   /* ── Event feed ── */
   #event-feed {
@@ -1292,7 +1291,7 @@ function copyIcon(type, id, title) {
   // Store text in data-ref so single/double quotes in titles don't break the onclick
   const ref = esc(`${type} #${id}: ${title}`);
   return `<button class="copy-btn" title="Copy ID &amp; title" data-ref="${ref}" onclick="event.stopPropagation();copyRef(this)" tabindex="-1">
-    <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor"><path d="M0 6.75A.75.75 0 0 1 .75 6h1.5a.75.75 0 0 1 0 1.5H.75A.75.75 0 0 1 0 6.75ZM0 3.75A.75.75 0 0 1 .75 3h8.5a.75.75 0 0 1 0 1.5H.75A.75.75 0 0 1 0 3.75ZM0 9.75A.75.75 0 0 1 .75 9h8.5a.75.75 0 0 1 0 1.5H.75A.75.75 0 0 1 0 9.75ZM5 12.75A.75.75 0 0 1 5.75 12h1.5a.75.75 0 0 1 0 1.5H5.75A.75.75 0 0 1 5 12.75ZM10.25 2a.75.75 0 0 1 .75.75v2.5h2.5a.75.75 0 0 1 0 1.5h-2.5v2.5a.75.75 0 0 1-1.5 0v-2.5h-2.5a.75.75 0 0 1 0-1.5h2.5v-2.5A.75.75 0 0 1 10.25 2Z"/></svg>
+    <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor"><path d="M4 1.5H3a2 2 0 0 0-2 2V14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V3.5a2 2 0 0 0-2-2h-1v1h1a1 1 0 0 1 1 1V14a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V3.5a1 1 0 0 1 1-1h1z"/><path d="M9.5 1a.5.5 0 0 1 .5.5v1a.5.5 0 0 1-.5.5h-3a.5.5 0 0 1-.5-.5v-1a.5.5 0 0 1 .5-.5zm-3-1A1.5 1.5 0 0 0 5 1.5v1A1.5 1.5 0 0 0 6.5 4h3A1.5 1.5 0 0 0 11 2.5v-1A1.5 1.5 0 0 0 9.5 0z"/></svg>
   </button>`;
 }
 
