@@ -876,15 +876,23 @@ function verificationBadge(status) {
 }
 
 function taskTypeBadge(taskType) {
-  const colors = {
-    'implementation': ['--blue', 'impl'],
-    'testing': ['--cyan', 'test'],
-    'documentation': ['--purple', 'docs'],
-    'research': ['--yellow', 'research'],
-    'review': ['--green', 'review'],
+  const colorMap = {
+    'implementation': { bg: 'rgba(88,166,255,0.15)', text: '#58a6ff' },
+    'testing': { bg: 'rgba(57,208,216,0.15)', text: '#39d0d8' },
+    'documentation': { bg: 'rgba(188,140,255,0.15)', text: '#bc8cff' },
+    'research': { bg: 'rgba(210,153,34,0.15)', text: '#d29922' },
+    'review': { bg: 'rgba(63,185,80,0.15)', text: '#3fb950' },
   };
-  const [color, label] = colors[taskType] || ['--muted', taskType];
-  return `<span class="badge" style="background:var(${color});opacity:0.15;color:var(${color})">${label}</span>`;
+  const labelMap = {
+    'implementation': 'impl',
+    'testing': 'test',
+    'documentation': 'docs',
+    'research': 'research',
+    'review': 'review',
+  };
+  const colors = colorMap[taskType] || { bg: 'rgba(99,110,123,0.15)', text: '#636e7b' };
+  const label = labelMap[taskType] || taskType;
+  return `<span class="badge" style="background:${colors.bg};color:${colors.text}">${label}</span>`;
 }
 
 function testingBadge(status) {
