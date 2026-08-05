@@ -875,6 +875,29 @@ function verificationBadge(status) {
   return `<span class="badge" style="background:rgba(var(--${color === '--green' ? '3' : color === '--yellow' ? '1' : '2'}),0.15);color:var(${color})">${label}</span>`;
 }
 
+function taskTypeBadge(taskType) {
+  const colors = {
+    'implementation': ['--blue', 'impl'],
+    'testing': ['--cyan', 'test'],
+    'documentation': ['--purple', 'docs'],
+    'research': ['--yellow', 'research'],
+    'review': ['--green', 'review'],
+  };
+  const [color, label] = colors[taskType] || ['--muted', taskType];
+  return `<span class="badge" style="background:var(${color});opacity:0.15;color:var(${color})">${label}</span>`;
+}
+
+function testingBadge(status) {
+  const colors = {
+    'passed': ['--green', 'passed ✓'],
+    'failed': ['--red', 'failed ✗'],
+    'running': ['--yellow', 'running ⟳'],
+    'pending': ['--muted', 'pending test'],
+  };
+  const [color, label] = colors[status] || ['--muted', status];
+  return `<span class="badge" style="background:rgba(var(--${color === '--green' ? '3' : color === '--red' ? '0' : '1'}),0.15);color:var(${color})">${label}</span>`;
+}
+
 function isTaskLive(t) {
   // true when any agent has this task as current_task (regardless of heartbeat age)
   // heartbeat freshness is shown separately via the agent dot colour
@@ -1221,13 +1244,32 @@ function buildEpicDetailRow(epic) {
         <span class="detail-value">${badge(activeTask.status)} <span class="badge badge-pending">${activeTask.owner ? esc(activeTask.owner) : '—'}</span></span>
       </div>
       <div class="detail-field">
+        <span class="detail-label">Type</span>
+        <span class="detail-value">${taskTypeBadge(activeTask.task_type || 'implementation')}</span>
+      </div>
+      ${activeTask.task_type === 'testing' ? `
+      <div class="detail-field">
+        <span class="detail-label">Testing Status</span>
+        <span class="detail-value">${testingBadge(activeTask.testing_status || 'pending')}</span>
+      </div>` : `
+      <div class="detail-field">
         <span class="detail-label">Verification</span>
         <span class="detail-value">${verificationBadge(activeTask.verification_status || 'unverified')}</span>
-      </div>
+      </div>`}
+      ${activeTask.tested_by ? `
+      <div class="detail-field">
+        <span class="detail-label">Tested by</span>
+        <span class="detail-value" style="color:var(--cyan)">${esc(activeTask.tested_by)}</span>
+      </div>` : ''}
       ${activeTask.verified_by ? `
       <div class="detail-field">
         <span class="detail-label">Verified by</span>
         <span class="detail-value" style="color:var(--cyan)">${esc(activeTask.verified_by)}</span>
+      </div>` : ''}
+      ${activeTask.test_method ? `
+      <div class="detail-field">
+        <span class="detail-label">Test Method</span>
+        <span class="detail-value" style="color:var(--blue);font-size:12px">${esc(activeTask.test_method)}</span>
       </div>` : ''}
       ${activeTask.verification_method ? `
       <div class="detail-field">
@@ -1372,15 +1414,21 @@ function buildTaskRowCells(tbodyId, t) {
   const pill = `<td>${projectPill(t.project)}</td>`;
   if (tbodyId === 'active-tbody') {
     const spinner = isTaskLive(t) ? '<span class="agent-working"></span>' : '';
+    const typeInfo = t.task_type === 'testing' && t.testing_status
+      ? testingBadge(t.testing_status)
+      : verificationBadge(t.verification_status || 'unverified');
     return `${id}${pill}<td class="title-cell" style="font-weight:500" title="${esc(t.title)}">${spinner}${esc(t.title)}</td><td>${ghBadge(t)}</td>
-            <td style="color:var(--cyan);font-size:12px">${esc(t.owner || '—')}</td><td>${verificationBadge(t.verification_status || 'unverified')}</td><td>${badge(t.status)}</td>`;
+            <td>${taskTypeBadge(t.task_type || 'implementation')}</td><td style="color:var(--cyan);font-size:12px">${esc(t.owner || '—')}</td><td>${typeInfo}</td><td>${badge(t.status)}</td>`;
   }
   if (tbodyId === 'blocked-tbody') {
     return `${id}${pill}<td class="title-cell" style="font-weight:500" title="${esc(t.title)}">${esc(t.title)}</td>
             <td style="color:var(--red);font-size:12px">${esc(t.blocked_reason || '—')}</td>`;
   }
+  const typeInfo = t.task_type === 'testing' && t.testing_status
+    ? testingBadge(t.testing_status)
+    : verificationBadge(t.verification_status || 'unverified');
   return `${id}${pill}<td class="title-cell" style="font-weight:500" title="${esc(t.title)}">${esc(t.title)}</td><td>${ghBadge(t)}</td>
-          <td style="color:var(--muted);font-size:12px">${t.epic_id ? '#'+t.epic_id : '—'}</td><td>${verificationBadge(t.verification_status || 'unverified')}</td>`;
+          <td>${taskTypeBadge(t.task_type || 'implementation')}</td><td style="color:var(--muted);font-size:12px">${t.epic_id ? '#'+t.epic_id : '—'}</td><td>${typeInfo}</td>`;
 }
 
 function buildTaskDetailRow(task, colSpan) {
@@ -1409,13 +1457,32 @@ function buildTaskDetailRow(task, colSpan) {
         <span class="detail-value">${badge(task.status)}</span>
       </div>
       <div class="detail-field">
-        <span class="detail-label">Verification</span>
-        <span class="detail-value">${verificationBadge(task.verification_status)}</span>
+        <span class="detail-label">Type</span>
+        <span class="detail-value">${taskTypeBadge(task.task_type || 'implementation')}</span>
       </div>
+      ${task.task_type === 'testing' ? `
+      <div class="detail-field">
+        <span class="detail-label">Testing Status</span>
+        <span class="detail-value">${testingBadge(task.testing_status || 'pending')}</span>
+      </div>` : `
+      <div class="detail-field">
+        <span class="detail-label">Verification</span>
+        <span class="detail-value">${verificationBadge(task.verification_status || 'unverified')}</span>
+      </div>`}
+      ${task.tested_by ? `
+      <div class="detail-field">
+        <span class="detail-label">Tested by</span>
+        <span class="detail-value" style="color:var(--cyan)">${esc(task.tested_by)}</span>
+      </div>` : ''}
       ${task.verified_by ? `
       <div class="detail-field">
         <span class="detail-label">Verified by</span>
         <span class="detail-value" style="color:var(--cyan)">${esc(task.verified_by)}</span>
+      </div>` : ''}
+      ${task.test_method ? `
+      <div class="detail-field">
+        <span class="detail-label">Test Method</span>
+        <span class="detail-value" style="color:var(--blue);font-size:12px">${esc(task.test_method)}</span>
       </div>` : ''}
       ${task.verification_method ? `
       <div class="detail-field">
