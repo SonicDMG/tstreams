@@ -39,6 +39,7 @@ from models import (
     TaskCreate,
     TaskHeartbeat,
     TaskOut,
+    TaskTestingUpdate,
     TaskVerify,
     VerificationOut,
 )
@@ -173,14 +174,14 @@ async def close_epic(epic_id: int, conn=Depends(get_conn)):
 # ── Tasks ─────────────────────────────────────────────────────────────────────
 
 def _task_with_issue(conn, row) -> dict:
-    """Enrich a task row with github_issue_number and code verification data."""
+    """Enrich a task row with github_issue_number, code verification, and testing data."""
     d = dict(row)
     gs = conn.execute(
         "SELECT issue_number FROM github_sync WHERE task_id = ?", (d["id"],)
     ).fetchone()
     d["github_issue_number"] = gs["issue_number"] if gs else None
     
-    # Fetch code verification data
+    # Fetch code verification data (for implementation tasks)
     cv = database.get_code_verification(conn, d["id"])
     if cv:
         d["verification_status"] = cv["verification_status"]
@@ -196,6 +197,20 @@ def _task_with_issue(conn, row) -> dict:
         d["verified_by"] = None
         d["verification_method"] = None
         d["code_paths"] = None
+    
+    # Fetch testing status data (for testing/qa tasks)
+    ts = database.get_testing_status(conn, d["id"])
+    if ts:
+        d["testing_status"] = ts["testing_status"]
+        d["tested_by"] = ts["tested_by"]
+        d["test_method"] = ts["test_method"]
+        d["test_result"] = ts["test_result"]
+    else:
+        d["testing_status"] = None
+        d["tested_by"] = None
+        d["test_method"] = None
+        d["test_result"] = None
+    
     return d
 
 
@@ -368,6 +383,46 @@ def _emit_verification_event(conn, task_id: int, agent_id: str, status: str) -> 
     project = task["project"] if task else None
     payload = json.dumps({"status": status})
     database._emit(conn, project, task_id, agent_id, "code_verification_updated", payload)
+
+
+
+
+@app.post("/tasks/{task_id}/type", response_model=OkResponse)
+async def set_task_type(task_id: int, task_type: str = Query(...), conn=Depends(get_conn)):
+    """Set task type (implementation, testing, documentation, research, review)."""
+    row = database.get_task(conn, task_id)
+    if not row:
+        raise HTTPException(404, "Task not found")
+    
+    ok = database.set_task_type(conn, task_id, task_type)
+    if not ok:
+        raise HTTPException(400, "Failed to set task type")
+    
+    return {"ok": True, "message": f"Task type set to: {task_type}"}
+
+
+@app.post("/tasks/{task_id}/testing", response_model=OkResponse)
+async def update_testing_status(task_id: int, body: TaskTestingUpdate, conn=Depends(get_conn)):
+    """Update testing status for a task."""
+    row = database.get_task(conn, task_id)
+    if not row:
+        raise HTTPException(404, "Task not found")
+    
+    database.set_testing_status(
+        conn, task_id, body.testing_status, body.tested_by,
+        body.test_method, body.test_result, body.notes
+    )
+    
+    _emit_testing_event(conn, task_id, body.tested_by, body.testing_status)
+    return {"ok": True, "message": f"Testing status set to: {body.testing_status}"}
+
+
+def _emit_testing_event(conn, task_id: int, agent_id: str, status: str) -> None:
+    """Emit a testing event."""
+    task = database.get_task(conn, task_id)
+    project = task["project"] if task else None
+    payload = json.dumps({"status": status})
+    database._emit(conn, project, task_id, agent_id, "testing_status_updated", payload)
 
 
 

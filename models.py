@@ -19,6 +19,7 @@ class TaskCreate(BaseModel):
     epic_id: Optional[int] = None
     deps: Optional[list[int]] = None
     project: Optional[str] = "default"
+    task_type: Optional[str] = "implementation"
 
 
 class TaskClaim(BaseModel):
@@ -47,6 +48,14 @@ class TaskVerify(BaseModel):
     verification_status: str
     verification_method: Optional[str] = None
     code_paths: Optional[list[CodePathCreate]] = None
+
+
+class TaskTestingUpdate(BaseModel):
+    tested_by: str
+    testing_status: str
+    test_method: Optional[str] = None
+    test_result: Optional[str] = None
+    notes: Optional[str] = None
 
 
 class TaskHeartbeat(BaseModel):
@@ -98,11 +107,16 @@ class TaskOut(BaseModel):
     created_at: int
     updated_at: int
     github_issue_number: Optional[int] = None
+    task_type: Optional[str] = "implementation"
     verification_status: Optional[str] = "unverified"
     verified_at: Optional[int] = None
     verified_by: Optional[str] = None
     verification_method: Optional[str] = None
     code_paths: Optional[list[CodePathOut]] = None
+    testing_status: Optional[str] = None
+    tested_by: Optional[str] = None
+    test_method: Optional[str] = None
+    test_result: Optional[str] = None
 
 
 class DecisionOut(BaseModel):

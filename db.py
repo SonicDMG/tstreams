@@ -43,6 +43,7 @@ def init_schema(conn: sqlite3.Connection) -> None:
             status      TEXT NOT NULL DEFAULT 'pending',
             owner       TEXT,
             blocked_reason TEXT,
+            task_type   TEXT NOT NULL DEFAULT 'implementation',
             created_at  INTEGER NOT NULL DEFAULT (unixepoch()),
             updated_at  INTEGER NOT NULL DEFAULT (unixepoch())
         );
@@ -116,6 +117,28 @@ def init_schema(conn: sqlite3.Connection) -> None:
             notes            TEXT,
             created_at       INTEGER NOT NULL DEFAULT (unixepoch())
         );
+
+        CREATE TABLE IF NOT EXISTS task_testing_status (
+            id               INTEGER PRIMARY KEY AUTOINCREMENT,
+            task_id          INTEGER NOT NULL UNIQUE REFERENCES tasks(id),
+            testing_status   TEXT NOT NULL DEFAULT 'pending',
+            tested_by        TEXT,
+            test_method      TEXT,
+            test_result      TEXT,
+            notes            TEXT,
+            last_updated_at  INTEGER NOT NULL DEFAULT (unixepoch())
+        );
+
+        CREATE TABLE IF NOT EXISTS task_completion_criteria (
+            id               INTEGER PRIMARY KEY AUTOINCREMENT,
+            task_id          INTEGER NOT NULL UNIQUE REFERENCES tasks(id),
+            criteria         TEXT NOT NULL,
+            met              INTEGER NOT NULL DEFAULT 0,
+            verified_at      INTEGER,
+            verified_by      TEXT,
+            notes            TEXT,
+            created_at       INTEGER NOT NULL DEFAULT (unixepoch())
+        );
     """)
     conn.commit()
     # Migrate existing DBs — add project column if absent
@@ -130,6 +153,8 @@ def _migrate(conn: sqlite3.Connection) -> None:
     existing = {row[1] for row in conn.execute("PRAGMA table_info(tasks)")}
     if "project" not in existing:
         conn.execute("ALTER TABLE tasks ADD COLUMN project TEXT NOT NULL DEFAULT 'default'")
+    if "task_type" not in existing:
+        conn.execute("ALTER TABLE tasks ADD COLUMN task_type TEXT NOT NULL DEFAULT 'implementation'")
     existing = {row[1] for row in conn.execute("PRAGMA table_info(events)")}
     if "project" not in existing:
         conn.execute("ALTER TABLE events ADD COLUMN project TEXT")
@@ -150,6 +175,13 @@ def _migrate(conn: sqlite3.Connection) -> None:
     )
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_task_code_verification ON task_code_verification(task_id)"
+    )
+    # Create indices for task type tracking tables
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_task_testing_status ON task_testing_status(task_id)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_task_completion_criteria ON task_completion_criteria(task_id)"
     )
     conn.commit()
 
@@ -427,6 +459,59 @@ def clear_code_verification(conn, task_id: int) -> bool:
     cur = conn.execute("DELETE FROM task_code_verification WHERE task_id = ?", (task_id,))
     conn.commit()
     return cur.rowcount > 0
+
+
+# ── Task Type Tracking ──────────────────────────────────────────────
+
+def set_task_type(conn, task_id: int, task_type: str) -> bool:
+    """Set task type (implementation, testing, documentation, research, review)."""
+    cur = conn.execute("UPDATE tasks SET task_type = ? WHERE id = ?", (task_type, task_id))
+    conn.commit()
+    return cur.rowcount > 0
+
+
+def get_task_type(conn, task_id: int) -> str:
+    """Get task type."""
+    row = conn.execute("SELECT task_type FROM tasks WHERE id = ?", (task_id,)).fetchone()
+    return row["task_type"] if row else "implementation"
+
+
+def set_testing_status(conn, task_id: int, testing_status: str, tested_by: str = None,
+                       test_method: str = None, test_result: str = None, notes: str = None) -> None:
+    """Set testing status for a task (pending, running, passed, failed)."""
+    conn.execute("""
+        INSERT OR REPLACE INTO task_testing_status
+        (task_id, testing_status, tested_by, test_method, test_result, notes, last_updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, unixepoch())
+    """, (task_id, testing_status, tested_by, test_method, test_result, notes))
+    conn.commit()
+
+
+def get_testing_status(conn, task_id: int):
+    """Get testing status for a task."""
+    return conn.execute(
+        "SELECT * FROM task_testing_status WHERE task_id = ?", (task_id,)
+    ).fetchone()
+
+
+def set_completion_criteria(conn, task_id: int, criteria: str, met: bool = False,
+                           verified_by: str = None, notes: str = None) -> int:
+    """Set completion criteria for a task."""
+    cur = conn.execute("""
+        INSERT OR REPLACE INTO task_completion_criteria
+        (task_id, criteria, met, verified_at, verified_by, notes)
+        VALUES (?, ?, ?, ?, ?, ?)
+    """, (task_id, criteria, 1 if met else 0, int(time.time()) if met else None, verified_by, notes))
+    conn.commit()
+    return cur.lastrowid
+
+
+def get_completion_criteria(conn, task_id: int):
+    """Get completion criteria for a task."""
+    return conn.execute(
+        "SELECT * FROM task_completion_criteria WHERE task_id = ?", (task_id,)
+    ).fetchone()
+
 
 
 
