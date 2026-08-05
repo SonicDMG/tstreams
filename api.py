@@ -372,6 +372,33 @@ async def list_agents(conn=Depends(get_conn)):
     return [dict(r) for r in rows]
 
 
+# ── Stats ─────────────────────────────────────────────────────────────────────
+
+@app.get("/stats")
+async def get_stats(project: Optional[str] = None, conn=Depends(get_conn)):
+    """Lightweight KPI counts — avoids fetching all task/decision rows."""
+    rows = database.list_epics(conn, project=project)
+    tasks_done  = sum(r["done_count"] or 0 for r in rows)
+    tasks_total = sum(r["task_count"] or 0 for r in rows)
+    tasks_open  = tasks_total - tasks_done
+    if project:
+        dec_rows = conn.execute(
+            "SELECT COUNT(*) AS n FROM decisions WHERE status != 'decided'"
+            " AND epic_id IN (SELECT id FROM epics WHERE project = ?)",
+            (project,)
+        ).fetchone()
+    else:
+        dec_rows = conn.execute(
+            "SELECT COUNT(*) AS n FROM decisions WHERE status != 'decided'"
+        ).fetchone()
+    return {
+        "tasks_done":      tasks_done,
+        "tasks_open":      tasks_open,
+        "tasks_total":     tasks_total,
+        "decisions_open":  dec_rows["n"],
+    }
+
+
 # ── Health ────────────────────────────────────────────────────────────────────
 
 @app.get("/health")

@@ -146,20 +146,24 @@ def list_epics(conn, project: str = None) -> list:
     if project:
         return conn.execute("""
             SELECT e.*,
-                   COUNT(t.id) AS task_count,
-                   SUM(CASE WHEN t.status = 'done' THEN 1 ELSE 0 END) AS done_count
+                   COUNT(DISTINCT t.id) AS task_count,
+                   COUNT(DISTINCT CASE WHEN t.status = 'done' THEN t.id END) AS done_count,
+                   COUNT(DISTINCT CASE WHEN d.status != 'decided' THEN d.id END) AS decisions_open_count
             FROM epics e
             LEFT JOIN tasks t ON t.epic_id = e.id
+            LEFT JOIN decisions d ON d.epic_id = e.id
             WHERE e.project = ?
             GROUP BY e.id
             ORDER BY e.created_at DESC
         """, (project,)).fetchall()
     return conn.execute("""
         SELECT e.*,
-               COUNT(t.id) AS task_count,
-               SUM(CASE WHEN t.status = 'done' THEN 1 ELSE 0 END) AS done_count
+               COUNT(DISTINCT t.id) AS task_count,
+               COUNT(DISTINCT CASE WHEN t.status = 'done' THEN t.id END) AS done_count,
+               COUNT(DISTINCT CASE WHEN d.status != 'decided' THEN d.id END) AS decisions_open_count
         FROM epics e
         LEFT JOIN tasks t ON t.epic_id = e.id
+        LEFT JOIN decisions d ON d.epic_id = e.id
         GROUP BY e.id
         ORDER BY e.project, e.created_at DESC
     """).fetchall()
