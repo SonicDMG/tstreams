@@ -1153,7 +1153,12 @@ function buildEpicDetailRow(epic) {
 }
 
 function toggleEpicDetail(epicId, tr) {
-  if (drillDown && drillDown.type === 'epic' && drillDown.id === epicId) {
+  // if this epic is KPI-expanded, toggling removes it from the set (collapse)
+  // and adds it back on a second click (expand), independent of drillDown
+  if (kpiExpandedEpics.has(epicId)) {
+    kpiExpandedEpics.delete(epicId);
+    drillDown = null;
+  } else if (drillDown && drillDown.type === 'epic' && drillDown.id === epicId) {
     drillDown = null;
   } else {
     drillDown = { type: 'epic', id: epicId };
