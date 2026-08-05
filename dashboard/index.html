@@ -1220,6 +1220,33 @@ function buildEpicDetailRow(epic) {
         <span class="detail-label">Status / Owner</span>
         <span class="detail-value">${badge(activeTask.status)} <span class="badge badge-pending">${activeTask.owner ? esc(activeTask.owner) : '—'}</span></span>
       </div>
+      <div class="detail-field">
+        <span class="detail-label">Verification</span>
+        <span class="detail-value">${verificationBadge(activeTask.verification_status || 'unverified')}</span>
+      </div>
+      ${activeTask.verified_by ? `
+      <div class="detail-field">
+        <span class="detail-label">Verified by</span>
+        <span class="detail-value" style="color:var(--cyan)">${esc(activeTask.verified_by)}</span>
+      </div>` : ''}
+      ${activeTask.verification_method ? `
+      <div class="detail-field">
+        <span class="detail-label">Verification Method</span>
+        <span class="detail-value" style="color:var(--blue);font-size:12px">${esc(activeTask.verification_method)}</span>
+      </div>` : ''}
+      ${activeTask.code_paths && activeTask.code_paths.length ? `
+      <div class="detail-field" style="grid-column:1/-1">
+        <span class="detail-label">Code Locations</span>
+        <div style="display:flex;flex-direction:column;gap:8px">
+          ${activeTask.code_paths.map(cp => `
+            <div style="background:var(--border);padding:8px;border-radius:4px;font-family:monospace;font-size:11px">
+              <div style="color:var(--cyan)">${esc(cp.file_path)}${cp.function_name ? '::' + esc(cp.function_name) : ''}</div>
+              <div style="color:var(--muted);margin-top:2px">commit: <span style="color:var(--yellow)">${esc(cp.commit_hash.substring(0,8))}</span></div>
+              ${cp.notes ? '<div style="color:var(--muted);margin-top:2px">'+esc(cp.notes)+'</div>' : ''}
+            </div>
+          `).join('')}
+        </div>
+      </div>` : ''}
       ${activeTask.blocked_reason ? `
       <div class="detail-field" style="grid-column:1/-1">
         <span class="detail-label">Block Reason</span>
