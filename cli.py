@@ -485,8 +485,10 @@ def agent_list():
 @click.option("--lines", default=20, show_default=True, help="Number of recent events to show.")
 def status(lines):
     """Show current operational status."""
-    epics = _api("GET", "/epics")
-    tasks = _api("GET", "/tasks")
+    epics = _api("GET", "/epics", params={"status": "open"})
+    active = _api("GET", "/tasks", params={"status": "in_progress"})
+    blocked = _api("GET", "/tasks", params={"status": "blocked"})
+    pending = _api("GET", "/tasks", params={"status": "pending"})
     agents = _api("GET", "/agents")
 
     now = int(time.time())
@@ -502,8 +504,6 @@ def status(lines):
         click.echo(f"  #{e['id']} {e['title'][:30]:<30} [{bar}] {pct}")
 
     click.echo(click.style("\n── Active Tasks ──────────────────────────────", bold=True))
-    active = [t for t in tasks if t["status"] == "in_progress"]
-    blocked = [t for t in tasks if t["status"] == "blocked"]
     if not active and not blocked:
         click.echo("  No active tasks.")
     for t in active:
@@ -521,7 +521,6 @@ def status(lines):
         click.echo(click.style(f"  {a['id']:<20} {task_str}  (last seen {age}s ago)", fg=color))
 
     click.echo(click.style("\n── Pending ───────────────────────────────────", bold=True))
-    pending = [t for t in tasks if t["status"] == "pending"]
     click.echo(f"  {len(pending)} task(s) waiting to be claimed.")
     click.echo()
 

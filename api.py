@@ -141,8 +141,8 @@ async def create_epic(body: EpicCreate, conn=Depends(get_conn)):
 
 
 @app.get("/epics", response_model=list[EpicOut])
-async def list_epics(project: Optional[str] = None, conn=Depends(get_conn)):
-    rows = database.list_epics(conn, project=project)
+async def list_epics(project: Optional[str] = None, status: Optional[str] = None, conn=Depends(get_conn)):
+    rows = database.list_epics(conn, project=project, status=status)
     return [dict(r) for r in rows]
 
 
@@ -376,8 +376,8 @@ async def list_agents(conn=Depends(get_conn)):
 
 @app.get("/stats")
 async def get_stats(project: Optional[str] = None, conn=Depends(get_conn)):
-    """Lightweight KPI counts — avoids fetching all task/decision rows."""
-    rows = database.list_epics(conn, project=project)
+    """Lightweight KPI counts — only considers open epics."""
+    rows = database.list_epics(conn, project=project, status="open")
     tasks_done  = sum(r["done_count"] or 0 for r in rows)
     tasks_total = sum(r["task_count"] or 0 for r in rows)
     tasks_open  = tasks_total - tasks_done
@@ -387,15 +387,23 @@ async def get_stats(project: Optional[str] = None, conn=Depends(get_conn)):
             " AND epic_id IN (SELECT id FROM epics WHERE project = ?)",
             (project,)
         ).fetchone()
+        closed_row = conn.execute(
+            "SELECT COUNT(*) AS n FROM epics WHERE status = 'closed' AND project = ?",
+            (project,)
+        ).fetchone()
     else:
         dec_rows = conn.execute(
             "SELECT COUNT(*) AS n FROM decisions WHERE status != 'decided'"
         ).fetchone()
+        closed_row = conn.execute(
+            "SELECT COUNT(*) AS n FROM epics WHERE status = 'closed'"
+        ).fetchone()
     return {
-        "tasks_done":      tasks_done,
-        "tasks_open":      tasks_open,
-        "tasks_total":     tasks_total,
-        "decisions_open":  dec_rows["n"],
+        "tasks_done":         tasks_done,
+        "tasks_open":         tasks_open,
+        "tasks_total":        tasks_total,
+        "decisions_open":     dec_rows["n"],
+        "closed_epic_count":  closed_row["n"],
     }
 
 

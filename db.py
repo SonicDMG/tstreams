@@ -142,21 +142,15 @@ def create_epic(conn, title: str, project: str = "default") -> int:
     return cur.lastrowid
 
 
-def list_epics(conn, project: str = None) -> list:
+def list_epics(conn, project: str = None, status: str = None) -> list:
+    where, params = [], []
     if project:
-        return conn.execute("""
-            SELECT e.*,
-                   COUNT(DISTINCT t.id) AS task_count,
-                   COUNT(DISTINCT CASE WHEN t.status = 'done' THEN t.id END) AS done_count,
-                   COUNT(DISTINCT CASE WHEN d.status != 'decided' THEN d.id END) AS decisions_open_count
-            FROM epics e
-            LEFT JOIN tasks t ON t.epic_id = e.id
-            LEFT JOIN decisions d ON d.epic_id = e.id
-            WHERE e.project = ?
-            GROUP BY e.id
-            ORDER BY e.created_at DESC
-        """, (project,)).fetchall()
-    return conn.execute("""
+        where.append("e.project = ?"); params.append(project)
+    if status:
+        where.append("e.status = ?"); params.append(status)
+    clause = ("WHERE " + " AND ".join(where)) if where else ""
+    order = "e.created_at DESC" if project else "e.project, e.created_at DESC"
+    return conn.execute(f"""
         SELECT e.*,
                COUNT(DISTINCT t.id) AS task_count,
                COUNT(DISTINCT CASE WHEN t.status = 'done' THEN t.id END) AS done_count,
@@ -164,9 +158,10 @@ def list_epics(conn, project: str = None) -> list:
         FROM epics e
         LEFT JOIN tasks t ON t.epic_id = e.id
         LEFT JOIN decisions d ON d.epic_id = e.id
+        {clause}
         GROUP BY e.id
-        ORDER BY e.project, e.created_at DESC
-    """).fetchall()
+        ORDER BY {order}
+    """, params).fetchall()
 
 
 def get_epic(conn, epic_id: int):

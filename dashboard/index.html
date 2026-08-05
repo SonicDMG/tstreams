@@ -642,7 +642,9 @@ let currentProject = '';  // '' = all projects
 // ── Data store ────────────────────────────────────────────────────────────────
 // tasks/decisions are NOT loaded globally — they are lazy-loaded per epic.
 // activeTasks holds only in_progress+blocked+pending for the cross-epic panels.
-let state = { epics: [], activeTasks: [], agents: [], projects: [], stats: {} };
+let state = { epics: [], closedEpics: null, activeTasks: [], agents: [], projects: [], stats: {} };
+let closedEpicsLoading = false;
+// closedEpics: null = not yet fetched; array = fetched data
 
 // Per-epic lazy cache: epicData[epicId] = { tasks, decisions } | null (loading)
 const epicData = {};
@@ -672,8 +674,9 @@ async function loadAll() {
   try {
     const pq = projectParams();
     const sep = pq ? '&' : '?';
+    const openEpicsParam = pq ? pq + '&status=open' : '?status=open';
     const [epics, inProg, blocked, pending, agents, projects, stats] = await Promise.all([
-      get('/epics' + pq),
+      get('/epics' + openEpicsParam),
       get('/tasks' + pq + sep + 'status=in_progress'),
       get('/tasks' + pq + sep + 'status=blocked'),
       get('/tasks' + pq + sep + 'status=pending'),
@@ -681,7 +684,8 @@ async function loadAll() {
       get('/projects'),
       get('/stats' + pq),
     ]);
-    state = { epics, activeTasks: [...inProg, ...blocked, ...pending], agents, projects, stats };
+    // Preserve closedEpics cache unless project changed (onProjectChange clears it)
+    state = { epics, closedEpics: state.closedEpics, activeTasks: [...inProg, ...blocked, ...pending], agents, projects, stats };
     renderAll();
     updateProjectDropdown();
     updateKPIs();
@@ -738,8 +742,10 @@ function onProjectChange() {
     localStorage.removeItem('ts_project');
   }
   drillDown = null;
-  // Clear per-epic cache when project changes
+  // Clear per-epic cache (including closed epics) when project changes
   for (const k of Object.keys(epicData)) delete epicData[k];
+  state.closedEpics = null;
+  closedEpicsLoading = false;
   connectSSE();
   loadAll();
 }
@@ -1039,39 +1045,49 @@ function updateSortHeaders() {
   });
 }
 
-function toggleArchive() {
+async function toggleArchive() {
   epicArchiveOpen = !epicArchiveOpen;
+  if (epicArchiveOpen && state.closedEpics === null && !closedEpicsLoading) {
+    closedEpicsLoading = true;
+    renderEpics();   // show "Loading…" placeholder
+    try {
+      const pq = projectParams();
+      const param = pq ? pq + '&status=closed' : '?status=closed';
+      state.closedEpics = await get('/epics' + param);
+    } catch(e) {
+      console.error('loadClosedEpics error', e);
+    } finally {
+      closedEpicsLoading = false;
+    }
+  }
   renderEpics();
 }
 
 function renderEpics() {
   const tbody = document.getElementById('epic-tbody');
-  const { epics } = state;
+  const { epics, stats } = state;
   document.getElementById('epic-count').textContent = epics.length;
-  if (!epics.length) { tbody.innerHTML = '<tr><td colspan="6" class="empty">No epics yet</td></tr>'; return; }
+  if (!epics.length && !(stats.closed_epic_count)) { tbody.innerHTML = '<tr><td colspan="6" class="empty">No epics yet</td></tr>'; return; }
 
   updateSortHeaders();
   updateKpiCards();
   tbody.innerHTML = '';
 
-  const allOpen   = epics.filter(e => e.status !== 'closed');
-  const allClosed = epics.filter(e => e.status === 'closed');
-
-  const openEpics   = applyEpicSort(applyEpicFilter(allOpen));
-  const closedEpics = applyEpicSort(applyEpicFilter(allClosed));
+  // state.epics contains only open epics (loaded eagerly)
+  const openEpics = applyEpicSort(applyEpicFilter(epics));
 
   // ── Filter banner ────────────────────────────────────────────────────────────
-  const filteredOut = allOpen.length - openEpics.length;
+  const filteredOut = epics.length - openEpics.length;
   if (epicFilter && filteredOut > 0) {
     const bannerTr = document.createElement('tr');
     bannerTr.innerHTML = `<td colspan="6" style="padding:6px 16px;font-size:11px;color:var(--muted);background:var(--surface);border-bottom:1px solid var(--border)">
-      Showing ${openEpics.length} of ${allOpen.length} open epics · <span style="cursor:pointer;color:var(--blue)" onclick="kpiClick(epicFilter)">clear filter</span>
+      Showing ${openEpics.length} of ${epics.length} open epics · <span style="cursor:pointer;color:var(--blue)" onclick="kpiClick(epicFilter)">clear filter</span>
     </td>`;
     tbody.appendChild(bannerTr);
   }
 
   // ── Open epics ──────────────────────────────────────────────────────────────
-  if (!openEpics.length) {
+  if (!openEpics.length && epics.length) {
     const empty = document.createElement('tr');
     empty.innerHTML = `<td colspan="6" class="empty">No epics match this filter · <span style="cursor:pointer;color:var(--blue)" onclick="kpiClick(epicFilter)">clear</span></td>`;
     tbody.appendChild(empty);
@@ -1083,22 +1099,32 @@ function renderEpics() {
     }
   }
 
-  // ── Closed epics (archive) ──────────────────────────────────────────────────
-  if (allClosed.length) {
+  // ── Closed epics (archive) — lazy loaded ─────────────────────────────────────
+  const closedCount = stats.closed_epic_count || 0;
+  if (closedCount > 0) {
+    const closedEpics = state.closedEpics || [];
+    const filteredClosed = applyEpicSort(applyEpicFilter(closedEpics));
+    const isLoading = epicArchiveOpen && closedEpicsLoading;
     const archiveTr = document.createElement('tr');
     archiveTr.className = 'epic-archive-header' + (epicArchiveOpen ? ' open' : '');
     archiveTr.innerHTML = `<td colspan="6">
-      <span class="archive-toggle">▶</span>Archive — ${closedEpics.length}${epicFilter ? ' matching' : ''} closed epic${closedEpics.length !== 1 ? 's' : ''}${epicFilter && closedEpics.length < allClosed.length ? ` (${allClosed.length} total)` : ''}
+      <span class="archive-toggle">▶</span>Archive — ${closedCount} closed epic${closedCount !== 1 ? 's' : ''}
     </td>`;
     archiveTr.addEventListener('click', toggleArchive);
     tbody.appendChild(archiveTr);
 
     if (epicArchiveOpen) {
-      for (const e of closedEpics) {
-        const { tr, isExpanded } = buildEpicRow(e);
-        tr.classList.add('archived');
-        tbody.appendChild(tr);
-        if (isExpanded) tbody.appendChild(buildEpicDetailRow(e));
+      if (isLoading) {
+        const loadingTr = document.createElement('tr');
+        loadingTr.innerHTML = `<td colspan="6" class="empty">Loading…</td>`;
+        tbody.appendChild(loadingTr);
+      } else {
+        for (const e of filteredClosed) {
+          const { tr, isExpanded } = buildEpicRow(e);
+          tr.classList.add('archived');
+          tbody.appendChild(tr);
+          if (isExpanded) tbody.appendChild(buildEpicDetailRow(e));
+        }
       }
     }
   }
