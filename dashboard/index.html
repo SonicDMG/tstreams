@@ -118,16 +118,7 @@
     box-shadow: 0 0 6px var(--green);
     flex-shrink: 0;
   }
-  #hero-subtitle { font-size: 12px; color: var(--muted); margin-bottom: 12px; }
-  #hero-pills { display: flex; flex-wrap: wrap; gap: 8px; }
-  .hero-pill {
-    font-size: 11px;
-    border: 1px solid var(--border2);
-    border-radius: 20px;
-    padding: 2px 10px;
-    color: var(--muted);
-  }
-  .hero-pill strong { color: var(--text); font-weight: 600; }
+  #hero-subtitle { font-size: 12px; color: var(--muted); margin-bottom: 4px; }
 
   /* ── KPI row ── */
   #kpi-row {
@@ -598,7 +589,6 @@
     <span id="hero-project-name">tstreams</span>
   </div>
   <div id="hero-subtitle">Live project status · auto-refreshes on events</div>
-  <div id="hero-pills"></div>
 </div>
 
 <!-- ── KPI row ── -->
@@ -853,15 +843,6 @@ function updateHero() {
   document.getElementById('hero-project-name').textContent = name;
   document.title = `${name} — tstreams`;
 
-  const pills = [
-    { label: 'Epics',          value: epics.length },
-    { label: 'Tasks closed',   value: stats.tasks_done   ?? '—' },
-    { label: 'Tasks total',    value: stats.tasks_total  ?? '—' },
-    { label: 'Decisions open', value: stats.decisions_open ?? '—' },
-  ];
-  document.getElementById('hero-pills').innerHTML = pills
-    .map(p => `<span class="hero-pill">${p.label} <strong>${p.value}</strong></span>`)
-    .join('');
 }
 
 // ── URL deep-link helpers (Task 11) ───────────────────────────────────────────
