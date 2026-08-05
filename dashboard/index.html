@@ -488,6 +488,91 @@
   .id-cell { white-space: nowrap; }
 
   #decisions-section { display: none; }
+
+  /* ── Responsive: narrow / vertically-stacked views ── */
+
+  /* Hide lower-priority columns in the tasks tables at medium widths */
+  @media (max-width: 860px) {
+    .panel-grid { grid-template-columns: 1fr; }
+    tr.task-active td.title-cell,
+    tr.task-blocked td.title-cell,
+    tr.task-pending td.title-cell { max-width: 180px; }
+    /* hide GitHub column in Active / Pending tables */
+    th.col-github, td.col-github { display: none; }
+    /* hide Owner column in Active table */
+    th.col-owner,  td.col-owner  { display: none; }
+    /* hide Epic column in Pending table */
+    th.col-epic,   td.col-epic   { display: none; }
+    /* hide Last Seen in Agents table */
+    th.col-lastseen, td.col-lastseen { display: none; }
+  }
+
+  @media (max-width: 640px) {
+    /* Topbar: allow wrapping, keep logo + status on first row */
+    #topbar {
+      flex-wrap: wrap;
+      padding: 8px 14px;
+      gap: 8px;
+    }
+    #topbar-logo { order: 0; }
+    #conn-status  { order: 1; }
+    #breadcrumb   { order: 2; flex-basis: 100%; margin: 0; }
+    #topbar-right { order: 3; flex-basis: 100%; margin-left: 0; justify-content: flex-start; }
+    #topbar-right label { display: none; }
+    #project-select { min-width: 0; flex: 1; }
+
+    /* Hero: smaller title, tighter padding */
+    #hero { padding: 14px 16px 12px; }
+    #hero-title { font-size: 17px; }
+    #hero-subtitle { font-size: 11px; }
+
+    /* KPI: 2×2 grid */
+    #kpi-row { grid-template-columns: repeat(2, 1fr); }
+    .kpi-value { font-size: 26px; }
+    .kpi-card  { padding: 12px 14px; }
+
+    /* Meta bar */
+    #meta-bar { padding: 5px 14px; }
+
+    /* Main padding */
+    main { padding: 16px 10px; gap: 20px; }
+
+    /* Tables: reduce cell padding */
+    td, th { padding: 7px 10px; }
+
+    /* hide Project column in all task tables at narrow widths */
+    th.col-project, td.col-project { display: none; }
+
+    /* Epics table: hide Project + Progress columns */
+    th.col-epic-project, td.col-epic-project { display: none; }
+    th.col-progress,     td.col-progress     { display: none; }
+
+    /* detail panel: force single column */
+    .detail-panel { grid-template-columns: 1fr; padding: 12px 14px; }
+
+    /* event feed: smaller font, less padding */
+    #event-feed { font-size: 10px; padding: 4px 10px; }
+    .event-ts   { min-width: 54px; }
+    .event-type { min-width: 100px; }
+  }
+
+  @media (max-width: 400px) {
+    /* KPI: 2 col but even more compact */
+    .kpi-value { font-size: 22px; }
+    .kpi-card  { padding: 10px 10px; }
+    .kpi-label { font-size: 9px; }
+
+    /* hide Reason column in Blocked table */
+    th.col-reason, td.col-reason { display: none; }
+
+    /* hide Status column in Active table */
+    th.col-status-active, td.col-status-active { display: none; }
+
+    td, th { padding: 6px 8px; }
+
+    /* progress bars: smaller */
+    .progress-bar { width: 54px; }
+  }
 </style>
 </head>
 <body>
@@ -554,10 +639,10 @@
       <table>
         <thead id="epic-thead"><tr>
           <th class="sortable" data-col="id" onclick="sortEpics('id')">ID<span class="sort-arrow">↕</span></th>
-          <th class="sortable" data-col="project" onclick="sortEpics('project')">Project<span class="sort-arrow">↕</span></th>
+          <th class="sortable col-epic-project" data-col="project" onclick="sortEpics('project')">Project<span class="sort-arrow">↕</span></th>
           <th class="sortable" data-col="title" onclick="sortEpics('title')">Title<span class="sort-arrow">↕</span></th>
           <th class="sortable" data-col="status" onclick="sortEpics('status')">Status<span class="sort-arrow">↕</span></th>
-          <th class="sortable" data-col="progress" onclick="sortEpics('progress')">Progress<span class="sort-arrow">↕</span></th>
+          <th class="sortable col-progress" data-col="progress" onclick="sortEpics('progress')">Progress<span class="sort-arrow">↕</span></th>
           <th style="width:32px"></th>
         </tr></thead>
         <tbody id="epic-tbody"><tr><td colspan="6" class="empty">Loading…</td></tr></tbody>
@@ -574,7 +659,7 @@
       <div class="panel">
         <div class="panel-header">Active <span class="count" id="active-count">0</span></div>
         <table>
-          <thead><tr><th>ID</th><th>Project</th><th>Title</th><th>GitHub</th><th>Owner</th><th>Status</th></tr></thead>
+          <thead><tr><th>ID</th><th class="col-project">Project</th><th>Title</th><th class="col-github">GitHub</th><th class="col-owner">Owner</th><th class="col-status-active">Status</th></tr></thead>
           <tbody id="active-tbody"><tr><td colspan="6" class="empty">No active tasks</td></tr></tbody>
         </table>
       </div>
@@ -583,7 +668,7 @@
       <div class="panel">
         <div class="panel-header">Blocked <span class="count" id="blocked-count">0</span></div>
         <table>
-          <thead><tr><th>ID</th><th>Project</th><th>Title</th><th>Reason</th></tr></thead>
+          <thead><tr><th>ID</th><th class="col-project">Project</th><th>Title</th><th class="col-reason">Reason</th></tr></thead>
           <tbody id="blocked-tbody"><tr><td colspan="4" class="empty">No blocked tasks</td></tr></tbody>
         </table>
       </div>
@@ -592,7 +677,7 @@
       <div class="panel">
         <div class="panel-header">Pending <span class="count" id="pending-count">0</span></div>
         <table>
-          <thead><tr><th>ID</th><th>Project</th><th>Title</th><th>GitHub</th><th>Epic</th></tr></thead>
+          <thead><tr><th>ID</th><th class="col-project">Project</th><th>Title</th><th class="col-github">GitHub</th><th class="col-epic">Epic</th></tr></thead>
           <tbody id="pending-tbody"><tr><td colspan="5" class="empty">No pending tasks</td></tr></tbody>
         </table>
       </div>
@@ -601,7 +686,7 @@
       <div class="panel">
         <div class="panel-header">Agents <span class="count" id="agent-count">0</span></div>
         <table>
-          <thead><tr><th>Agent</th><th>Status</th><th>Working On</th><th>Last Seen</th></tr></thead>
+          <thead><tr><th>Agent</th><th>Status</th><th>Working On</th><th class="col-lastseen">Last Seen</th></tr></thead>
           <tbody id="agent-tbody"><tr><td colspan="4" class="empty">No agents registered</td></tr></tbody>
         </table>
       </div>
@@ -954,10 +1039,10 @@ function buildEpicRow(e) {
   tr.dataset.epicId = e.id;
   tr.innerHTML = `
     <td class="id-cell" style="color:var(--muted);font-family:monospace;font-size:12px">#${e.id}</td>
-    <td>${projectPill(e.project)}</td>
+    <td class="col-epic-project">${projectPill(e.project)}</td>
     <td style="font-weight:500">${epicActive ? '<span class="agent-working"></span>' : ''}${esc(e.title)}</td>
     <td>${badge(e.status)}</td>
-    <td>
+    <td class="col-progress">
       <div class="progress-stack">
         ${decsOpenCount ? `
         <div class="progress-row">
@@ -1419,24 +1504,24 @@ function renderTaskTable(tbodyId, tasks, colSpan) {
 
 function buildTaskRowCells(tbodyId, t) {
   const id = `<td class="id-cell" style="color:var(--muted);font-family:monospace;font-size:12px">#${t.id}${copyIcon('task', t.id, t.title)}</td>`;
-  const pill = `<td>${projectPill(t.project)}</td>`;
+  const pill = `<td class="col-project">${projectPill(t.project)}</td>`;
   if (tbodyId === 'active-tbody') {
     const spinner = isTaskLive(t) ? '<span class="agent-working"></span>' : '';
     const typeInfo = t.task_type === 'testing' && t.testing_status
       ? testingBadge(t.testing_status)
       : verificationBadge(t.verification_status || 'unverified');
-    return `${id}${pill}<td class="title-cell" style="font-weight:500" title="${esc(t.title)}">${spinner}${esc(t.title)}</td><td>${ghBadge(t)}</td>
-            <td>${taskTypeBadge(t.task_type || 'implementation')}</td><td style="color:var(--cyan);font-size:12px">${esc(t.owner || '—')}</td><td>${typeInfo}</td><td>${badge(t.status)}</td>`;
+    return `${id}${pill}<td class="title-cell" style="font-weight:500" title="${esc(t.title)}">${spinner}${esc(t.title)}</td><td class="col-github">${ghBadge(t)}</td>
+            <td>${taskTypeBadge(t.task_type || 'implementation')}</td><td class="col-owner" style="color:var(--cyan);font-size:12px">${esc(t.owner || '—')}</td><td class="col-status-active">${typeInfo}</td><td class="col-status-active">${badge(t.status)}</td>`;
   }
   if (tbodyId === 'blocked-tbody') {
     return `${id}${pill}<td class="title-cell" style="font-weight:500" title="${esc(t.title)}">${esc(t.title)}</td>
-            <td style="color:var(--red);font-size:12px">${esc(t.blocked_reason || '—')}</td>`;
+            <td class="col-reason" style="color:var(--red);font-size:12px">${esc(t.blocked_reason || '—')}</td>`;
   }
   const typeInfo = t.task_type === 'testing' && t.testing_status
     ? testingBadge(t.testing_status)
     : verificationBadge(t.verification_status || 'unverified');
-  return `${id}${pill}<td class="title-cell" style="font-weight:500" title="${esc(t.title)}">${esc(t.title)}</td><td>${ghBadge(t)}</td>
-          <td>${taskTypeBadge(t.task_type || 'implementation')}</td><td style="color:var(--muted);font-size:12px">${t.epic_id ? '#'+t.epic_id : '—'}</td><td>${typeInfo}</td>`;
+  return `${id}${pill}<td class="title-cell" style="font-weight:500" title="${esc(t.title)}">${esc(t.title)}</td><td class="col-github">${ghBadge(t)}</td>
+          <td>${taskTypeBadge(t.task_type || 'implementation')}</td><td class="col-epic" style="color:var(--muted);font-size:12px">${t.epic_id ? '#'+t.epic_id : '—'}</td><td>${typeInfo}</td>`;
 }
 
 function buildTaskDetailRow(task, colSpan) {
@@ -1587,7 +1672,7 @@ function renderAgents() {
       <td>${indicator}${esc(a.id)}</td>
       <td style="color:var(--muted);font-size:12px">${statusLabel}</td>
       <td style="color:var(--cyan);font-size:12px">${task}</td>
-      <td style="color:var(--muted);font-size:12px">${ageSince(age)}</td>
+      <td class="col-lastseen" style="color:var(--muted);font-size:12px">${ageSince(age)}</td>
     </tr>`;
   }).join('');
 }
