@@ -143,7 +143,13 @@
     display: flex;
     flex-direction: column;
     gap: 2px;
+    cursor: pointer;
+    border: 1px solid transparent;
+    transition: border-color 0.15s, background 0.15s;
   }
+  .kpi-card:hover { background: rgba(255,255,255,0.04); }
+  .kpi-card.kpi-active { border-color: currentColor; background: rgba(255,255,255,0.04); }
+  .kpi-card.kpi-active .kpi-label::after { content: ' ↓'; opacity: 0.6; }
   .kpi-value {
     font-size: 32px;
     font-weight: 700;
@@ -249,6 +255,28 @@
     border-bottom: 1px solid var(--border);
     background: var(--surface);
   }
+  th.sortable { cursor: pointer; user-select: none; }
+  th.sortable:hover { color: var(--text); }
+  th.sortable .sort-arrow { margin-left: 4px; opacity: 0.4; font-size: 9px; }
+  th.sortable.sort-asc .sort-arrow,
+  th.sortable.sort-desc .sort-arrow { opacity: 1; color: var(--cyan); }
+  tr.epic-archive-header td {
+    padding: 6px 16px;
+    background: transparent;
+    border-top: 1px solid var(--border);
+    font-size: 10px;
+    font-weight: 700;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    cursor: pointer;
+    user-select: none;
+  }
+  tr.epic-archive-header:hover td { color: var(--text); }
+  tr.epic-archive-header td .archive-toggle { margin-right: 6px; display: inline-block; transition: transform 0.15s; }
+  tr.epic-archive-header.open td .archive-toggle { transform: rotate(90deg); }
+  tr.epic-row.archived td { opacity: 0.45; }
+  tr.epic-row.archived:hover td { opacity: 0.75; }
   td { padding: 9px 16px; border-bottom: 1px solid var(--border); vertical-align: middle; }
   tr:last-child td { border-bottom: none; }
   tr.flash { animation: flash 1s ease-out; }
@@ -480,19 +508,19 @@
 
 <!-- ── KPI row ── -->
 <div id="kpi-row">
-  <div class="kpi-card">
+  <div class="kpi-card" id="kpi-card-done" onclick="kpiClick('tasks_done')">
     <div class="kpi-value kpi-green" id="kpi-tasks-done">—</div>
     <div class="kpi-label">Tasks closed</div>
   </div>
-  <div class="kpi-card">
+  <div class="kpi-card" id="kpi-card-open" onclick="kpiClick('tasks_open')">
     <div class="kpi-value kpi-yellow" id="kpi-tasks-open">—</div>
     <div class="kpi-label">Tasks open</div>
   </div>
-  <div class="kpi-card">
+  <div class="kpi-card" id="kpi-card-total" onclick="kpiClick('tasks_total')">
     <div class="kpi-value kpi-cyan" id="kpi-tasks-total">—</div>
     <div class="kpi-label">Tasks total</div>
   </div>
-  <div class="kpi-card">
+  <div class="kpi-card" id="kpi-card-decisions" onclick="kpiClick('decisions_open')">
     <div class="kpi-value kpi-purple" id="kpi-decisions-open">—</div>
     <div class="kpi-label">Decisions open</div>
   </div>
@@ -514,7 +542,14 @@
     <div class="panel">
       <div class="panel-header">Epics <span class="count" id="epic-count">0</span></div>
       <table>
-        <thead><tr><th>ID</th><th>Project</th><th>Title</th><th>Status</th><th>Progress</th><th style="width:32px"></th></tr></thead>
+        <thead id="epic-thead"><tr>
+          <th class="sortable" data-col="id" onclick="sortEpics('id')">ID<span class="sort-arrow">↕</span></th>
+          <th class="sortable" data-col="project" onclick="sortEpics('project')">Project<span class="sort-arrow">↕</span></th>
+          <th class="sortable" data-col="title" onclick="sortEpics('title')">Title<span class="sort-arrow">↕</span></th>
+          <th class="sortable" data-col="status" onclick="sortEpics('status')">Status<span class="sort-arrow">↕</span></th>
+          <th class="sortable" data-col="progress" onclick="sortEpics('progress')">Progress<span class="sort-arrow">↕</span></th>
+          <th style="width:32px"></th>
+        </tr></thead>
         <tbody id="epic-tbody"><tr><td colspan="6" class="empty">Loading…</td></tr></tbody>
       </table>
     </div>
@@ -600,6 +635,12 @@ let state = { epics: [], tasks: [], agents: [], projects: [], decisions: [] };
 // ── Navigation state ──────────────────────────────────────────────────────────
 // drillDown: null | { type: 'epic', id } | { type: 'task', id, epicId }
 let drillDown = null;
+
+// ── Epic sort + filter state ──────────────────────────────────────────────────
+let epicSort = { col: 'id', dir: 'desc' };   // default: newest first
+let epicArchiveOpen = false;                  // closed epics collapsed by default
+let epicFilter = null;                        // null | 'tasks_open' | 'tasks_done' | 'tasks_total' | 'decisions_open'
+let kpiExpandedEpics = new Set();             // epic IDs auto-expanded by a KPI filter
 
 // ── Fetch helpers ─────────────────────────────────────────────────────────────
 async function get(path) {
@@ -803,11 +844,11 @@ function buildEpicRow(e) {
   const decsDone  = epicDecisions.filter(d => d.status === 'decided').length;
   const decsTotal = epicDecisions.length;
 
-  const isExpanded = drillDown && (
+  const isExpanded = kpiExpandedEpics.has(e.id) || (drillDown && (
     (drillDown.type === 'epic' && drillDown.id === e.id) ||
     (drillDown.type === 'task' && drillDown.epicId === e.id) ||
     (drillDown.type === 'decision' && drillDown.epicId === e.id)
-  );
+  ));
 
   const tr = document.createElement('tr');
   tr.className = 'clickable epic-row' + (isExpanded ? ' expanded' : '');
@@ -836,37 +877,168 @@ function buildEpicRow(e) {
   return { tr, isExpanded };
 }
 
+function epicOpenWork(e) {
+  const tasks = state.tasks.filter(t => t.epic_id === e.id && t.status !== 'done');
+  const decs  = state.decisions.filter(d => d.epic_id === e.id && d.status !== 'decided');
+  return tasks.length + decs.length;
+}
+
+// ── KPI filter ────────────────────────────────────────────────────────────────
+
+const KPI_CARD_MAP = {
+  tasks_done:      'kpi-card-done',
+  tasks_open:      'kpi-card-open',
+  tasks_total:     'kpi-card-total',
+  decisions_open:  'kpi-card-decisions',
+};
+
+function kpiClick(filter) {
+  const turningOn = epicFilter !== filter;
+  epicFilter = turningOn ? filter : null;
+
+  // auto-apply a sensible sort when activating a filter
+  if (epicFilter === 'tasks_open')     { epicSort = { col: 'progress', dir: 'desc' }; }
+  if (epicFilter === 'tasks_done')     { epicSort = { col: 'progress', dir: 'asc'  }; }
+  if (epicFilter === 'decisions_open') { epicSort = { col: 'progress', dir: 'desc' }; }
+  if (epicFilter === 'tasks_total')    { epicSort = { col: 'id', dir: 'desc' }; }
+
+  // expand all matching epics when filter is active, collapse when cleared
+  kpiExpandedEpics = new Set();
+  if (epicFilter) {
+    for (const e of applyEpicFilter(state.epics)) {
+      kpiExpandedEpics.add(e.id);
+    }
+  }
+
+  updateKpiCards();
+  renderEpics();
+  // scroll epics into view
+  document.querySelector('.section-label')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function updateKpiCards() {
+  for (const [filter, cardId] of Object.entries(KPI_CARD_MAP)) {
+    document.getElementById(cardId)?.classList.toggle('kpi-active', epicFilter === filter);
+  }
+}
+
+function applyEpicFilter(epics) {
+  if (!epicFilter) return epics;
+  return epics.filter(e => {
+    if (epicFilter === 'tasks_open')     return state.tasks.some(t => t.epic_id === e.id && t.status !== 'done');
+    if (epicFilter === 'tasks_done')     return state.tasks.some(t => t.epic_id === e.id && t.status === 'done');
+    if (epicFilter === 'tasks_total')    return state.tasks.some(t => t.epic_id === e.id);
+    if (epicFilter === 'decisions_open') return state.decisions.some(d => d.epic_id === e.id && d.status !== 'decided');
+    return true;
+  });
+}
+
+function sortEpics(col) {
+  if (epicSort.col === col) {
+    epicSort.dir = epicSort.dir === 'asc' ? 'desc' : 'asc';
+  } else {
+    epicSort.col = col;
+    // progress: most open work first by default
+    epicSort.dir = (col === 'id' || col === 'progress') ? 'desc' : 'asc';
+  }
+  renderEpics();
+}
+
+function applyEpicSort(epics) {
+  const { col, dir } = epicSort;
+  const sorted = [...epics].sort((a, b) => {
+    let av, bv;
+    if (col === 'progress') {
+      av = epicOpenWork(a); bv = epicOpenWork(b);
+    } else if (col === 'id') {
+      av = Number(a.id); bv = Number(b.id);
+    } else {
+      av = (a[col] || '').toLowerCase(); bv = (b[col] || '').toLowerCase();
+    }
+    if (av < bv) return dir === 'asc' ? -1 : 1;
+    if (av > bv) return dir === 'asc' ? 1 : -1;
+    return 0;
+  });
+  return sorted;
+}
+
+function updateSortHeaders() {
+  const thead = document.getElementById('epic-thead');
+  if (!thead) return;
+  thead.querySelectorAll('th.sortable').forEach(th => {
+    const col = th.dataset.col;
+    th.classList.remove('sort-asc', 'sort-desc');
+    const arrow = th.querySelector('.sort-arrow');
+    if (col === epicSort.col) {
+      th.classList.add(epicSort.dir === 'asc' ? 'sort-asc' : 'sort-desc');
+      if (arrow) arrow.textContent = epicSort.dir === 'asc' ? '↑' : '↓';
+    } else {
+      if (arrow) arrow.textContent = '↕';
+    }
+  });
+}
+
+function toggleArchive() {
+  epicArchiveOpen = !epicArchiveOpen;
+  renderEpics();
+}
+
 function renderEpics() {
   const tbody = document.getElementById('epic-tbody');
   const { epics } = state;
   document.getElementById('epic-count').textContent = epics.length;
   if (!epics.length) { tbody.innerHTML = '<tr><td colspan="6" class="empty">No epics yet</td></tr>'; return; }
 
+  updateSortHeaders();
+  updateKpiCards();
   tbody.innerHTML = '';
 
-  // Group epics by project, preserving original order within each group
-  const groups = new Map();
-  for (const e of epics) {
-    const key = e.project || 'default';
-    if (!groups.has(key)) groups.set(key, []);
-    groups.get(key).push(e);
+  const allOpen   = epics.filter(e => e.status !== 'closed');
+  const allClosed = epics.filter(e => e.status === 'closed');
+
+  const openEpics   = applyEpicSort(applyEpicFilter(allOpen));
+  const closedEpics = applyEpicSort(applyEpicFilter(allClosed));
+
+  // ── Filter banner ────────────────────────────────────────────────────────────
+  const filteredOut = allOpen.length - openEpics.length;
+  if (epicFilter && filteredOut > 0) {
+    const bannerTr = document.createElement('tr');
+    bannerTr.innerHTML = `<td colspan="6" style="padding:6px 16px;font-size:11px;color:var(--muted);background:var(--surface);border-bottom:1px solid var(--border)">
+      Showing ${openEpics.length} of ${allOpen.length} open epics · <span style="cursor:pointer;color:var(--blue)" onclick="kpiClick(epicFilter)">clear filter</span>
+    </td>`;
+    tbody.appendChild(bannerTr);
   }
 
-  // If only one project, skip section headers (single-project view)
-  const multiProject = groups.size > 1;
-
-  for (const [project, projectEpics] of groups) {
-    if (multiProject) {
-      const headerTr = document.createElement('tr');
-      headerTr.className = 'project-group-header';
-      headerTr.innerHTML = `<td colspan="6">${esc(project)} <span style="font-weight:400;opacity:0.6">${projectEpics.length} epic${projectEpics.length !== 1 ? 's' : ''}</span></td>`;
-      tbody.appendChild(headerTr);
-    }
-
-    for (const e of projectEpics) {
+  // ── Open epics ──────────────────────────────────────────────────────────────
+  if (!openEpics.length) {
+    const empty = document.createElement('tr');
+    empty.innerHTML = `<td colspan="6" class="empty">No epics match this filter · <span style="cursor:pointer;color:var(--blue)" onclick="kpiClick(epicFilter)">clear</span></td>`;
+    tbody.appendChild(empty);
+  } else {
+    for (const e of openEpics) {
       const { tr, isExpanded } = buildEpicRow(e);
       tbody.appendChild(tr);
       if (isExpanded) tbody.appendChild(buildEpicDetailRow(e));
+    }
+  }
+
+  // ── Closed epics (archive) ──────────────────────────────────────────────────
+  if (allClosed.length) {
+    const archiveTr = document.createElement('tr');
+    archiveTr.className = 'epic-archive-header' + (epicArchiveOpen ? ' open' : '');
+    archiveTr.innerHTML = `<td colspan="6">
+      <span class="archive-toggle">▶</span>Archive — ${closedEpics.length}${epicFilter ? ' matching' : ''} closed epic${closedEpics.length !== 1 ? 's' : ''}${epicFilter && closedEpics.length < allClosed.length ? ` (${allClosed.length} total)` : ''}
+    </td>`;
+    archiveTr.addEventListener('click', toggleArchive);
+    tbody.appendChild(archiveTr);
+
+    if (epicArchiveOpen) {
+      for (const e of closedEpics) {
+        const { tr, isExpanded } = buildEpicRow(e);
+        tr.classList.add('archived');
+        tbody.appendChild(tr);
+        if (isExpanded) tbody.appendChild(buildEpicDetailRow(e));
+      }
     }
   }
 }
@@ -934,7 +1106,7 @@ function buildEpicDetailRow(epic) {
       </div>
       <div class="detail-field">
         <span class="detail-label">Status / Owner</span>
-        <span class="detail-value">${badge(activeTask.status)} <span class="badge">${activeTask.owner ? esc(activeTask.owner) : '—'}</span></span>
+        <span class="detail-value">${badge(activeTask.status)} <span class="badge badge-pending">${activeTask.owner ? esc(activeTask.owner) : '—'}</span></span>
       </div>
       ${activeTask.blocked_reason ? `
       <div class="detail-field" style="grid-column:1/-1">
