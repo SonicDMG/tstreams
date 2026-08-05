@@ -864,6 +864,17 @@ function badge(status) {
   return `<span class="badge badge-${status}">${status}</span>`;
 }
 
+function verificationBadge(status) {
+  const colors = {
+    'verified': ['--green', 'verified ✓'],
+    'partial': ['--yellow', 'partial ⚠'],
+    'needs_review': ['--blue', 'needs review ℹ'],
+    'unverified': ['--muted', 'unverified'],
+  };
+  const [color, label] = colors[status] || ['--muted', status];
+  return `<span class="badge" style="background:rgba(var(--${color === '--green' ? '3' : color === '--yellow' ? '1' : '2'}),0.15);color:var(${color})">${label}</span>`;
+}
+
 function isTaskLive(t) {
   // true when any agent has this task as current_task (regardless of heartbeat age)
   // heartbeat freshness is shown separately via the agent dot colour
@@ -1335,14 +1346,14 @@ function buildTaskRowCells(tbodyId, t) {
   if (tbodyId === 'active-tbody') {
     const spinner = isTaskLive(t) ? '<span class="agent-working"></span>' : '';
     return `${id}${pill}<td class="title-cell" style="font-weight:500" title="${esc(t.title)}">${spinner}${esc(t.title)}</td><td>${ghBadge(t)}</td>
-            <td style="color:var(--cyan);font-size:12px">${esc(t.owner || '—')}</td><td>${badge(t.status)}</td>`;
+            <td style="color:var(--cyan);font-size:12px">${esc(t.owner || '—')}</td><td>${verificationBadge(t.verification_status || 'unverified')}</td><td>${badge(t.status)}</td>`;
   }
   if (tbodyId === 'blocked-tbody') {
     return `${id}${pill}<td class="title-cell" style="font-weight:500" title="${esc(t.title)}">${esc(t.title)}</td>
             <td style="color:var(--red);font-size:12px">${esc(t.blocked_reason || '—')}</td>`;
   }
   return `${id}${pill}<td class="title-cell" style="font-weight:500" title="${esc(t.title)}">${esc(t.title)}</td><td>${ghBadge(t)}</td>
-          <td style="color:var(--muted);font-size:12px">${t.epic_id ? '#'+t.epic_id : '—'}</td>`;
+          <td style="color:var(--muted);font-size:12px">${t.epic_id ? '#'+t.epic_id : '—'}</td><td>${verificationBadge(t.verification_status || 'unverified')}</td>`;
 }
 
 function buildTaskDetailRow(task, colSpan) {
@@ -1370,6 +1381,33 @@ function buildTaskDetailRow(task, colSpan) {
         <span class="detail-label">Status</span>
         <span class="detail-value">${badge(task.status)}</span>
       </div>
+      <div class="detail-field">
+        <span class="detail-label">Verification</span>
+        <span class="detail-value">${verificationBadge(task.verification_status)}</span>
+      </div>
+      ${task.verified_by ? `
+      <div class="detail-field">
+        <span class="detail-label">Verified by</span>
+        <span class="detail-value" style="color:var(--cyan)">${esc(task.verified_by)}</span>
+      </div>` : ''}
+      ${task.verification_method ? `
+      <div class="detail-field">
+        <span class="detail-label">Verification Method</span>
+        <span class="detail-value" style="color:var(--blue);font-size:12px">${esc(task.verification_method)}</span>
+      </div>` : ''}
+      ${task.code_paths && task.code_paths.length ? `
+      <div class="detail-field" style="grid-column:1/-1">
+        <span class="detail-label">Code Locations</span>
+        <div style="display:flex;flex-direction:column;gap:8px">
+          ${task.code_paths.map(cp => `
+            <div style="background:var(--border);padding:8px;border-radius:4px;font-family:monospace;font-size:11px">
+              <div style="color:var(--cyan)">${esc(cp.file_path)}${cp.function_name ? '::' + esc(cp.function_name) : ''}</div>
+              <div style="color:var(--muted);margin-top:2px">commit: <span style="color:var(--yellow)">${esc(cp.commit_hash.substring(0,8))}</span></div>
+              ${cp.notes ? '<div style="color:var(--muted);margin-top:2px">'+esc(cp.notes)+'</div>' : ''}
+            </div>
+          `).join('')}
+        </div>
+      </div>` : ''}
       ${task.blocked_reason ? `
       <div class="detail-field" style="grid-column:1/-1">
         <span class="detail-label">Block Reason</span>

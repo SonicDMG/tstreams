@@ -34,6 +34,21 @@ class TaskBlock(BaseModel):
     reason: str
 
 
+class CodePathCreate(BaseModel):
+    file_path: str
+    function_name: Optional[str] = None
+    commit_hash: str
+    commit_date: int
+    notes: Optional[str] = None
+
+
+class TaskVerify(BaseModel):
+    agent_id: str
+    verification_status: str
+    verification_method: Optional[str] = None
+    code_paths: Optional[list[CodePathCreate]] = None
+
+
 class TaskHeartbeat(BaseModel):
     agent_id: str
 
@@ -62,6 +77,15 @@ class EpicOut(BaseModel):
     created_at: int
 
 
+class CodePathOut(BaseModel):
+    id: int
+    file_path: str
+    function_name: Optional[str]
+    commit_hash: str
+    commit_date: int
+    notes: Optional[str]
+
+
 class TaskOut(BaseModel):
     id: int
     project: str
@@ -74,6 +98,11 @@ class TaskOut(BaseModel):
     created_at: int
     updated_at: int
     github_issue_number: Optional[int] = None
+    verification_status: Optional[str] = "unverified"
+    verified_at: Optional[int] = None
+    verified_by: Optional[str] = None
+    verification_method: Optional[str] = None
+    code_paths: Optional[list[CodePathOut]] = None
 
 
 class DecisionOut(BaseModel):
@@ -105,6 +134,15 @@ class EventOut(BaseModel):
 class OkResponse(BaseModel):
     ok: bool
     message: Optional[str] = None
+
+
+class VerificationOut(BaseModel):
+    task_id: int
+    verification_status: str
+    verified_at: Optional[int] = None
+    verified_by: Optional[str] = None
+    verification_method: Optional[str] = None
+    code_paths: Optional[list[CodePathOut]] = None
 
 
 class GithubSyncOut(BaseModel):

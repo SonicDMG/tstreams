@@ -24,6 +24,7 @@ import github as github_sync
 from models import (
     AgentOut,
     AgentRegister,
+    CodePathOut,
     DecisionCreate,
     DecisionOut,
     EpicCreate,
@@ -38,6 +39,8 @@ from models import (
     TaskCreate,
     TaskHeartbeat,
     TaskOut,
+    TaskVerify,
+    VerificationOut,
 )
 
 # ── Config ────────────────────────────────────────────────────────────────────
@@ -170,12 +173,29 @@ async def close_epic(epic_id: int, conn=Depends(get_conn)):
 # ── Tasks ─────────────────────────────────────────────────────────────────────
 
 def _task_with_issue(conn, row) -> dict:
-    """Enrich a task row with github_issue_number from github_sync."""
+    """Enrich a task row with github_issue_number and code verification data."""
     d = dict(row)
     gs = conn.execute(
         "SELECT issue_number FROM github_sync WHERE task_id = ?", (d["id"],)
     ).fetchone()
     d["github_issue_number"] = gs["issue_number"] if gs else None
+    
+    # Fetch code verification data
+    cv = database.get_code_verification(conn, d["id"])
+    if cv:
+        d["verification_status"] = cv["verification_status"]
+        d["verified_at"] = cv["verified_at"]
+        d["verified_by"] = cv["verified_by"]
+        d["verification_method"] = cv["verification_method"]
+        # Fetch code paths
+        code_paths = database.get_code_paths(conn, d["id"])
+        d["code_paths"] = [dict(cp) for cp in code_paths] if code_paths else None
+    else:
+        d["verification_status"] = "unverified"
+        d["verified_at"] = None
+        d["verified_by"] = None
+        d["verification_method"] = None
+        d["code_paths"] = None
     return d
 
 
@@ -278,6 +298,78 @@ async def unblock_task(task_id: int, conn=Depends(get_conn)):
         raise HTTPException(409, "Task is not blocked")
     _trigger_immediate_sync(conn, task_id)
     return {"ok": True}
+
+
+@app.post("/tasks/{task_id}/verify", response_model=OkResponse)
+async def verify_task_code(task_id: int, body: TaskVerify, conn=Depends(get_conn)):
+    """Mark task code as verified and store code locations."""
+    row = database.get_task(conn, task_id)
+    if not row:
+        raise HTTPException(404, "Task not found")
+    
+    # Set verification status
+    database.set_code_verification(
+        conn, task_id, body.verification_status,
+        body.agent_id, body.verification_method
+    )
+    
+    # Add code path references
+    if body.code_paths:
+        for cp in body.code_paths:
+            database.add_code_path_reference(
+                conn, task_id, cp.file_path, cp.commit_hash,
+                cp.commit_date, cp.function_name, cp.notes
+            )
+    
+    _emit_verification_event(conn, task_id, body.agent_id, body.verification_status)
+    return {"ok": True, "message": f"Task verified with status: {body.verification_status}"}
+
+
+@app.get("/tasks/{task_id}/verification", response_model=VerificationOut)
+async def get_task_verification(task_id: int, conn=Depends(get_conn)):
+    """Get verification details for a task."""
+    row = database.get_task(conn, task_id)
+    if not row:
+        raise HTTPException(404, "Task not found")
+    
+    cv = database.get_code_verification(conn, task_id)
+    if not cv:
+        raise HTTPException(404, "No verification record for this task")
+    
+    code_paths = database.get_code_paths(conn, task_id)
+    return {
+        "task_id": task_id,
+        "verification_status": cv["verification_status"],
+        "verified_at": cv["verified_at"],
+        "verified_by": cv["verified_by"],
+        "verification_method": cv["verification_method"],
+        "code_paths": [dict(cp) for cp in code_paths] if code_paths else None,
+    }
+
+
+@app.post("/tasks/{task_id}/verify/unset", response_model=OkResponse)
+async def unset_task_verification(task_id: int, conn=Depends(get_conn)):
+    """Clear verification status and code paths for a task."""
+    row = database.get_task(conn, task_id)
+    if not row:
+        raise HTTPException(404, "Task not found")
+    
+    ok = database.clear_code_verification(conn, task_id)
+    if not ok:
+        raise HTTPException(409, "No verification record to clear")
+    
+    _emit_verification_event(conn, task_id, "system", "unverified")
+    return {"ok": True}
+
+
+def _emit_verification_event(conn, task_id: int, agent_id: str, status: str) -> None:
+    """Emit a verification event."""
+    task = database.get_task(conn, task_id)
+    project = task["project"] if task else None
+    payload = json.dumps({"status": status})
+    database._emit(conn, project, task_id, agent_id, "code_verification_updated", payload)
+
+
 
 
 @app.post("/tasks/{task_id}/link", response_model=OkResponse)

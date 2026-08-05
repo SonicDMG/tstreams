@@ -95,6 +95,27 @@ def init_schema(conn: sqlite3.Connection) -> None:
             github_updated_at  INTEGER NOT NULL DEFAULT 0,
             tstreams_updated_at INTEGER NOT NULL DEFAULT 0
         );
+
+        CREATE TABLE IF NOT EXISTS task_code_verification (
+            id               INTEGER PRIMARY KEY AUTOINCREMENT,
+            task_id          INTEGER NOT NULL UNIQUE REFERENCES tasks(id),
+            verification_status TEXT NOT NULL DEFAULT 'unverified',
+            verified_at      INTEGER,
+            verified_by      TEXT,
+            verification_method TEXT,
+            last_updated_at  INTEGER NOT NULL DEFAULT (unixepoch())
+        );
+
+        CREATE TABLE IF NOT EXISTS code_path_references (
+            id               INTEGER PRIMARY KEY AUTOINCREMENT,
+            task_id          INTEGER NOT NULL REFERENCES tasks(id),
+            file_path        TEXT NOT NULL,
+            function_name    TEXT,
+            commit_hash      TEXT NOT NULL,
+            commit_date      INTEGER NOT NULL,
+            notes            TEXT,
+            created_at       INTEGER NOT NULL DEFAULT (unixepoch())
+        );
     """)
     conn.commit()
     # Migrate existing DBs — add project column if absent
@@ -122,6 +143,13 @@ def _migrate(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE github_sync ADD COLUMN tstreams_updated_at INTEGER NOT NULL DEFAULT 0")
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_github_sync_repo ON github_sync(repo, issue_number)"
+    )
+    # Create indices for code verification tables
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_code_path_task ON code_path_references(task_id)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_task_code_verification ON task_code_verification(task_id)"
     )
     conn.commit()
 
@@ -350,6 +378,56 @@ def register_agent(conn, agent_id: str) -> None:
 
 def list_agents(conn) -> list:
     return conn.execute("SELECT * FROM agents ORDER BY last_heartbeat DESC").fetchall()
+
+
+# ── Code Verification ────────────────────────────────────────────────
+
+def set_code_verification(conn, task_id: int, verification_status: str,
+                          agent_id: str, verification_method: str = None) -> None:
+    """Set or update code verification status for a task."""
+    conn.execute("""
+        INSERT OR REPLACE INTO task_code_verification
+        (task_id, verification_status, verified_at, verified_by, verification_method, last_updated_at)
+        VALUES (?, ?, unixepoch(), ?, ?, unixepoch())
+    """, (task_id, verification_status, agent_id, verification_method))
+    conn.commit()
+
+
+def get_code_verification(conn, task_id: int):
+    """Get code verification record for a task."""
+    return conn.execute(
+        "SELECT * FROM task_code_verification WHERE task_id = ?", (task_id,)
+    ).fetchone()
+
+
+def add_code_path_reference(conn, task_id: int, file_path: str, commit_hash: str,
+                            commit_date: int, function_name: str = None,
+                            notes: str = None) -> int:
+    """Add a code path reference for a task."""
+    cur = conn.execute("""
+        INSERT INTO code_path_references
+        (task_id, file_path, function_name, commit_hash, commit_date, notes)
+        VALUES (?, ?, ?, ?, ?, ?)
+    """, (task_id, file_path, function_name, commit_hash, commit_date, notes))
+    conn.commit()
+    return cur.lastrowid
+
+
+def get_code_paths(conn, task_id: int) -> list:
+    """Get all code path references for a task."""
+    return conn.execute(
+        "SELECT * FROM code_path_references WHERE task_id = ? ORDER BY created_at",
+        (task_id,)
+    ).fetchall()
+
+
+def clear_code_verification(conn, task_id: int) -> bool:
+    """Clear verification status and remove all code path references."""
+    conn.execute("DELETE FROM code_path_references WHERE task_id = ?", (task_id,))
+    cur = conn.execute("DELETE FROM task_code_verification WHERE task_id = ?", (task_id,))
+    conn.commit()
+    return cur.rowcount > 0
+
 
 
 # ── Events ────────────────────────────────────────────────────────────────────
