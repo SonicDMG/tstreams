@@ -1,5 +1,6 @@
 import { useState, useEffect, type ReactNode } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { MarkdownContent } from './MarkdownContent'
 import { QK } from '../lib/queryKeys'
 import { api } from '../lib/api'
 import { showError, showSuccess, errorMessage } from '../lib/toast'
@@ -215,9 +216,9 @@ function DecisionRow({ decision: d, expanded, onToggle }: {
             <div className="p-[14px_20px] bg-background border-t border-border text-[13px] flex flex-col gap-[10px]">
               <div className="flex flex-col gap-1">
                 <span className="text-[10px] text-muted uppercase tracking-wide font-semibold">Content</span>
-                <span className="text-foreground whitespace-pre-wrap break-words">
-                  {d.content || <span className="text-muted italic">No content</span>}
-                </span>
+                {d.content
+                  ? <MarkdownContent>{d.content}</MarkdownContent>
+                  : <span className="text-muted italic text-xs">No content</span>}
               </div>
             </div>
           </td>

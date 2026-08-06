@@ -54,3 +54,107 @@ body {
   from { transform: translateX(100%); }
   to   { transform: translateX(0); }
 }
+
+/* ── Markdown content ────────────────────────────────────────────────────────
+   Scoped to .md-content so these styles don't bleed into the rest of the UI.
+   Targets the elements react-markdown produces from CommonMark + GFM.
+   ─────────────────────────────────────────────────────────────────────────── */
+.md-content {
+  font-size: 13px;
+  line-height: 1.65;
+  color: var(--text);
+}
+.md-content > * + * { margin-top: 0.65em; }
+
+/* Headings */
+.md-content h1, .md-content h2, .md-content h3,
+.md-content h4, .md-content h5, .md-content h6 {
+  font-weight: 600;
+  line-height: 1.3;
+  color: var(--text);
+  margin-top: 1em;
+}
+.md-content h1 { font-size: 1.15em; }
+.md-content h2 { font-size: 1.05em; }
+.md-content h3 { font-size: 0.97em; color: var(--cyan); }
+.md-content h4, .md-content h5, .md-content h6 { font-size: 0.93em; color: var(--muted); }
+
+/* Inline */
+.md-content strong { font-weight: 600; color: var(--text); }
+.md-content em     { font-style: italic; color: var(--text); }
+.md-content del    { text-decoration: line-through; color: var(--muted); }
+.md-content a      { color: var(--blue); text-decoration: underline; }
+.md-content a:hover { color: var(--cyan); }
+
+/* Code */
+.md-content code {
+  font-family: ui-monospace, "SFMono-Regular", Menlo, monospace;
+  font-size: 0.88em;
+  background: var(--surface);
+  border: 1px solid var(--border2);
+  border-radius: 3px;
+  padding: 1px 5px;
+  color: var(--cyan);
+}
+.md-content pre {
+  background: var(--surface);
+  border: 1px solid var(--border2);
+  border-radius: 6px;
+  padding: 10px 14px;
+  overflow-x: auto;
+}
+.md-content pre code {
+  background: none;
+  border: none;
+  padding: 0;
+  font-size: 0.85em;
+  color: var(--text);
+}
+
+/* Lists */
+.md-content ul, .md-content ol {
+  padding-left: 1.4em;
+}
+.md-content li { margin-top: 0.2em; }
+.md-content li > p { margin-top: 0; }
+/* GFM task lists */
+.md-content input[type="checkbox"] {
+  margin-right: 0.35em;
+  accent-color: var(--accent);
+}
+
+/* Blockquote */
+.md-content blockquote {
+  border-left: 3px solid var(--border2);
+  padding-left: 0.85em;
+  color: var(--muted);
+  font-style: italic;
+}
+
+/* GFM Tables */
+.md-content table {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: 0.9em;
+}
+.md-content th, .md-content td {
+  border: 1px solid var(--border2);
+  padding: 5px 10px;
+  text-align: left;
+}
+.md-content th {
+  background: var(--surface);
+  font-weight: 600;
+  color: var(--muted);
+  font-size: 0.85em;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.md-content tr:nth-child(even) td { background: rgba(255,255,255,0.02); }
+
+/* Horizontal rule */
+.md-content hr {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: 1em 0;
+}

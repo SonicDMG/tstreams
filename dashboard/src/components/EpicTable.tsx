@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { MarkdownContent } from './MarkdownContent'
 import { QK } from '../lib/queryKeys'
 import { api } from '../lib/api'
 import { useDrillDown } from '../contexts/DrillDownContext'
@@ -385,7 +386,9 @@ function EpicRows({ epic: e, drillDown, setDrillDown, currentProject, archived =
                     <span className="text-[10px] text-purple uppercase tracking-[0.05em] font-semibold">Decision #{d.id} detail</span>
                     <div className="flex flex-col gap-1">
                       <span className="text-[10px] text-muted uppercase tracking-[0.05em] font-semibold">Content</span>
-                      <span className="text-foreground whitespace-pre-wrap break-words">{d.content || <span className="text-muted italic">No content</span>}</span>
+                      {d.content
+                        ? <MarkdownContent>{d.content}</MarkdownContent>
+                        : <span className="text-muted italic text-xs">No content</span>}
                     </div>
                     <div className="flex flex-col gap-1 mt-1">
                       <span className="text-[10px] text-muted uppercase tracking-[0.05em] font-semibold">Status</span>
@@ -447,7 +450,9 @@ function EpicTaskDetail({ task: t, onEdit }: { task: Task; onEdit: () => void })
       </div>
       <div className="flex flex-col gap-1">
         <span className="text-[10px] text-muted uppercase tracking-[0.05em] font-semibold">Description</span>
-        <span className="text-foreground whitespace-pre-wrap break-words">{t.description || <span className="text-muted italic">No description</span>}</span>
+        {t.description
+          ? <MarkdownContent>{t.description}</MarkdownContent>
+          : <span className="text-muted italic text-xs">No description</span>}
       </div>
       <div className="flex flex-col gap-1">
         <span className="text-[10px] text-muted uppercase tracking-[0.05em] font-semibold">Status / Owner</span>
