@@ -81,6 +81,11 @@ class DecisionCreate(BaseModel):
     epic_id: Optional[int] = None
 
 
+class DecisionUpdate(BaseModel):
+    title: Optional[str] = None
+    content: Optional[str] = None
+
+
 class AgentRegister(BaseModel):
     agent_id: str
 

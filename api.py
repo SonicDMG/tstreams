@@ -38,6 +38,7 @@ from models import (
     CodePathOut,
     DecisionCreate,
     DecisionOut,
+    DecisionUpdate,
     EpicCreate,
     EpicOut,
     EventOut,
@@ -617,6 +618,14 @@ async def create_decision(body: DecisionCreate, conn=Depends(get_conn)):
 async def list_decisions(epic_id: Optional[int] = None, conn=Depends(get_conn)):
     rows = database.list_decisions(conn, epic_id=epic_id)
     return [dict(r) for r in rows]
+
+
+@app.patch("/decisions/{decision_id}", response_model=DecisionOut)
+async def update_decision(decision_id: int, body: DecisionUpdate, conn=Depends(get_conn)):
+    row = database.update_decision(conn, decision_id, title=body.title, content=body.content)
+    if not row:
+        raise HTTPException(status_code=404, detail="Decision not found")
+    return dict(row)
 
 
 @app.post("/decisions/{decision_id}/resolve", response_model=DecisionOut)

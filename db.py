@@ -445,6 +445,21 @@ def list_decisions(conn, epic_id: int = None) -> list:
     return conn.execute("SELECT * FROM decisions ORDER BY id").fetchall()
 
 
+def update_decision(conn, decision_id: int, title: str = None, content: str = None) -> dict | None:
+    """Partial update of decision fields."""
+    fields = {}
+    if title   is not None: fields["title"]   = title
+    if content is not None: fields["content"] = content
+    if not fields:
+        return conn.execute("SELECT * FROM decisions WHERE id = ?", (decision_id,)).fetchone()
+    set_clause = ", ".join(f"{k} = ?" for k in fields)
+    values = list(fields.values()) + [decision_id]
+    conn.execute(f"UPDATE decisions SET {set_clause} WHERE id = ?", values)
+    conn.commit()
+    _emit(conn, None, None, None, "decision_updated", f'{{"decision_id": {decision_id}}}')
+    return conn.execute("SELECT * FROM decisions WHERE id = ?", (decision_id,)).fetchone()
+
+
 def resolve_decision(conn, decision_id: int) -> dict | None:
     row = conn.execute("SELECT * FROM decisions WHERE id = ?", (decision_id,)).fetchone()
     if not row:

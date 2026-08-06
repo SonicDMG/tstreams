@@ -445,6 +445,20 @@ def decision_resolve(decision_id):
     click.echo(click.style(f"✔ Decision #{data['id']} resolved: {data['title']}", fg="green"))
 
 
+@decision.command("update")
+@click.argument("decision_id", type=int)
+@click.option("--title",   default=None, help="New title.")
+@click.option("--content", default=None, help="New content (markdown supported).")
+def decision_update(decision_id, title, content):
+    """Update a decision's title or content."""
+    if not title and not content:
+        raise click.UsageError("Provide at least --title or --content.")
+    data = _api("PATCH", f"/decisions/{decision_id}", json={
+        k: v for k, v in {"title": title, "content": content}.items() if v is not None
+    })
+    click.echo(click.style(f"✔ Decision #{data['id']} updated: {data['title']}", fg="green"))
+
+
 # ── Version ───────────────────────────────────────────────────────────────────
 
 @cli.group()
