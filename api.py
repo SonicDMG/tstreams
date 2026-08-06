@@ -277,6 +277,7 @@ async def patch_task(task_id: int, body: TaskUpdate, conn=Depends(get_conn)):
         title=body.title,
         description=body.description,
         task_type=body.task_type,
+        epic_id=body.epic_id,
     )
     if not updated:
         raise HTTPException(404, "Task not found or no fields provided")

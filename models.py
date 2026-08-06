@@ -26,6 +26,7 @@ class TaskUpdate(BaseModel):
     title: Optional[str] = None
     description: Optional[str] = None
     task_type: Optional[str] = None
+    epic_id: Optional[int] = None
 
 
 class TaskClaim(BaseModel):

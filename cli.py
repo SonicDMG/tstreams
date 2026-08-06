@@ -332,6 +332,15 @@ def task_unblock(task_id):
     click.echo(click.style(f"✔ Task #{task_id} unblocked", fg="green"))
 
 
+@task.command("move")
+@click.argument("task_id", type=int)
+@click.option("--epic", "epic_id", type=int, required=True, help="Target epic ID.")
+def task_move(task_id, epic_id):
+    """Reassign a task to a different epic."""
+    _api("PATCH", f"/tasks/{task_id}", json={"epic_id": epic_id})
+    click.echo(click.style(f"✔ Task #{task_id} moved to epic #{epic_id}", fg="green"))
+
+
 @task.command("show")
 @click.argument("task_id", type=int)
 def task_show(task_id):

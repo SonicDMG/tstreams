@@ -405,12 +405,13 @@ def unblock_task(conn, task_id: int) -> bool:
     return cur.rowcount > 0
 
 
-def update_task(conn, task_id: int, title: str = None, description: str = None, task_type: str = None) -> bool:
+def update_task(conn, task_id: int, title: str = None, description: str = None, task_type: str = None, epic_id: int = None) -> bool:
     """Partial update of task fields. Only provided (non-None) fields are changed."""
     fields = {}
     if title       is not None: fields["title"]       = title
     if description is not None: fields["description"] = description
     if task_type   is not None: fields["task_type"]   = task_type
+    if epic_id     is not None: fields["epic_id"]     = epic_id
     if not fields:
         return False
     set_clause = ", ".join(f"{k} = ?" for k in fields)
