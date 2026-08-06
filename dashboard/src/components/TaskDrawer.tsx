@@ -3,6 +3,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { QK } from '../lib/queryKeys'
 import { api } from '../lib/api'
 import { showError, showSuccess, errorMessage } from '../lib/toast'
+import { MarkdownContent } from './MarkdownContent'
 import type { Task } from '../lib/types'
 
 const TASK_TYPES = ['implementation', 'testing', 'documentation', 'research', 'review'] as const
@@ -17,6 +18,7 @@ export function TaskDrawer({ task, onClose }: Props) {
   const [title, setTitle]       = useState('')
   const [desc, setDesc]         = useState('')
   const [taskType, setTaskType] = useState('')
+  const [descTab, setDescTab]   = useState<'edit' | 'preview'>('edit')
 
   // Sync fields when task changes
   useEffect(() => {
@@ -91,9 +93,30 @@ export function TaskDrawer({ task, onClose }: Props) {
           </div>
 
           <div className="flex flex-col gap-1">
-            <label className="text-[10px] text-muted uppercase tracking-[0.05em] font-semibold">Description</label>
-            <textarea value={desc} onChange={e => setDesc(e.target.value)} rows={6}
-              className="bg-surface border border-border2 rounded-md px-3 py-2 text-sm text-foreground outline-none focus:border-accent w-full resize-y" />
+            <div className="flex items-center justify-between">
+              <label className="text-[10px] text-muted uppercase tracking-[0.05em] font-semibold">Description</label>
+              <div className="flex text-[11px] border border-border2 rounded overflow-hidden">
+                <button
+                  onClick={() => setDescTab('edit')}
+                  className={`px-2 py-[2px] border-0 cursor-pointer ${descTab === 'edit' ? 'bg-accent text-white' : 'bg-surface text-muted hover:text-foreground'}`}>
+                  Edit
+                </button>
+                <button
+                  onClick={() => setDescTab('preview')}
+                  className={`px-2 py-[2px] border-0 cursor-pointer ${descTab === 'preview' ? 'bg-accent text-white' : 'bg-surface text-muted hover:text-foreground'}`}>
+                  Preview
+                </button>
+              </div>
+            </div>
+            {descTab === 'edit'
+              ? <textarea value={desc} onChange={e => setDesc(e.target.value)} rows={6}
+                  className="bg-surface border border-border2 rounded-md px-3 py-2 text-sm text-foreground outline-none focus:border-accent w-full resize-y" />
+              : <div className="bg-surface border border-border2 rounded-md px-3 py-2 min-h-[120px] text-sm">
+                  {desc.trim()
+                    ? <MarkdownContent>{desc}</MarkdownContent>
+                    : <span className="text-muted italic">Nothing to preview</span>}
+                </div>
+            }
           </div>
 
           <div className="flex flex-col gap-1">
