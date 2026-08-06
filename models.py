@@ -62,6 +62,13 @@ class TaskHeartbeat(BaseModel):
     agent_id: str
 
 
+class VersionCreate(BaseModel):
+    name: str
+    description: Optional[str] = None
+    project: Optional[str] = "default"
+    epic_ids: Optional[list[int]] = None
+
+
 class DecisionCreate(BaseModel):
     title: str
     content: str
@@ -171,3 +178,18 @@ class GithubSyncOut(BaseModel):
 class IssueLink(BaseModel):
     issue_number: int
     repo: Optional[str] = None
+
+
+class VersionOut(BaseModel):
+    id: int
+    project: str
+    name: str
+    description: Optional[str]
+    created_at: int
+    task_count: int = 0
+
+
+class VersionDiffOut(BaseModel):
+    from_version: Optional[VersionOut]
+    to_version: VersionOut
+    tasks: list[TaskOut]

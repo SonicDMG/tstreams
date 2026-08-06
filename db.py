@@ -139,6 +139,21 @@ def init_schema(conn: sqlite3.Connection) -> None:
             notes            TEXT,
             created_at       INTEGER NOT NULL DEFAULT (unixepoch())
         );
+
+        CREATE TABLE IF NOT EXISTS versions (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            project     TEXT NOT NULL DEFAULT 'default',
+            name        TEXT NOT NULL,
+            description TEXT,
+            created_at  INTEGER NOT NULL DEFAULT (unixepoch()),
+            UNIQUE (project, name)
+        );
+
+        CREATE TABLE IF NOT EXISTS version_tasks (
+            version_id  INTEGER NOT NULL REFERENCES versions(id),
+            task_id     INTEGER NOT NULL REFERENCES tasks(id),
+            PRIMARY KEY (version_id, task_id)
+        );
     """)
     conn.commit()
     # Migrate existing DBs — add project column if absent
@@ -182,6 +197,27 @@ def _migrate(conn: sqlite3.Connection) -> None:
     )
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_task_completion_criteria ON task_completion_criteria(task_id)"
+    )
+    # versions tables
+    existing = {row[1] for row in conn.execute("PRAGMA table_info(versions)")}
+    if not existing:
+        conn.executescript("""
+            CREATE TABLE IF NOT EXISTS versions (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                project     TEXT NOT NULL DEFAULT 'default',
+                name        TEXT NOT NULL,
+                description TEXT,
+                created_at  INTEGER NOT NULL DEFAULT (unixepoch()),
+                UNIQUE (project, name)
+            );
+            CREATE TABLE IF NOT EXISTS version_tasks (
+                version_id  INTEGER NOT NULL REFERENCES versions(id),
+                task_id     INTEGER NOT NULL REFERENCES tasks(id),
+                PRIMARY KEY (version_id, task_id)
+            );
+        """)
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_version_tasks_version ON version_tasks(version_id)"
     )
     conn.commit()
 
@@ -626,3 +662,97 @@ def get_all_enrolled(conn) -> list:
         FROM github_sync gs
         ORDER BY gs.task_id
     """).fetchall()
+
+
+# ── Versions ──────────────────────────────────────────────────────────────────
+
+def create_version(conn, name: str, project: str = "default",
+                   description: str = None,
+                   epic_ids: list[int] = None) -> int:
+    """
+    Snapshot currently-done tasks for *project* under a version tag.
+    If epic_ids is provided, only tasks belonging to those epics are captured.
+    Returns the new version id.
+    """
+    cur = conn.execute(
+        "INSERT INTO versions (name, project, description) VALUES (?, ?, ?)",
+        (name, project, description),
+    )
+    version_id = cur.lastrowid
+    if epic_ids:
+        placeholders = ",".join("?" * len(epic_ids))
+        conn.execute(f"""
+            INSERT OR IGNORE INTO version_tasks (version_id, task_id)
+            SELECT ?, id FROM tasks
+            WHERE project = ? AND status = 'done' AND epic_id IN ({placeholders})
+        """, [version_id, project] + list(epic_ids))
+    else:
+        conn.execute("""
+            INSERT OR IGNORE INTO version_tasks (version_id, task_id)
+            SELECT ?, id FROM tasks WHERE project = ? AND status = 'done'
+        """, (version_id, project))
+    conn.commit()
+    _emit(conn, project, None, None, "version_created",
+          f'{{"version_id": {version_id}, "name": "{name}"}}')
+    return version_id
+
+
+def list_versions(conn, project: str = None) -> list:
+    """List all version tags, optionally filtered by project."""
+    if project:
+        return conn.execute(
+            "SELECT * FROM versions WHERE project = ? ORDER BY created_at",
+            (project,),
+        ).fetchall()
+    return conn.execute("SELECT * FROM versions ORDER BY project, created_at").fetchall()
+
+
+def get_version(conn, project: str, name: str):
+    """Fetch a single version by project + name."""
+    return conn.execute(
+        "SELECT * FROM versions WHERE project = ? AND name = ?",
+        (project, name),
+    ).fetchone()
+
+
+def get_version_tasks(conn, version_id: int) -> list:
+    """All task rows captured under a version."""
+    return conn.execute("""
+        SELECT t.* FROM tasks t
+        JOIN version_tasks vt ON vt.task_id = t.id
+        WHERE vt.version_id = ?
+        ORDER BY t.epic_id, t.id
+    """, (version_id,)).fetchall()
+
+
+def diff_versions(conn, project: str, from_name: str, to_name: str) -> dict:
+    """
+    Return tasks in *to_name* but not in *from_name*.
+    Pass from_name=None/"" to get every task in *to_name*.
+    """
+    to_ver = get_version(conn, project, to_name)
+    if not to_ver:
+        return None
+
+    if from_name:
+        from_ver = get_version(conn, project, from_name)
+        if not from_ver:
+            return None
+        rows = conn.execute("""
+            SELECT t.* FROM tasks t
+            JOIN version_tasks vt_to ON vt_to.task_id = t.id AND vt_to.version_id = ?
+            WHERE t.id NOT IN (
+                SELECT task_id FROM version_tasks WHERE version_id = ?
+            )
+            ORDER BY t.epic_id, t.id
+        """, (to_ver["id"], from_ver["id"])).fetchall()
+        from_row = from_ver
+    else:
+        rows = get_version_tasks(conn, to_ver["id"])
+        from_row = None
+
+    return {
+        "from_version": dict(from_row) if from_row else None,
+        "to_version": dict(to_ver),
+        "tasks": [dict(r) for r in rows],
+    }

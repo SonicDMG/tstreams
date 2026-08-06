@@ -42,6 +42,9 @@ from models import (
     TaskTestingUpdate,
     TaskVerify,
     VerificationOut,
+    VersionCreate,
+    VersionDiffOut,
+    VersionOut,
 )
 
 # ── Config ────────────────────────────────────────────────────────────────────
@@ -477,6 +480,90 @@ async def trigger_sync(conn=Depends(get_conn)):
         None, lambda: github_sync._sync_once(conn, token, repo, last_poll_ts)
     )
     return {"ok": True, "message": "sync triggered"}
+
+
+# ── Versions ──────────────────────────────────────────────────────────────────
+
+def _version_with_count(conn, row) -> dict:
+    """Enrich a version row with task_count."""
+    d = dict(row)
+    cnt = conn.execute(
+        "SELECT COUNT(*) AS n FROM version_tasks WHERE version_id = ?", (d["id"],)
+    ).fetchone()
+    d["task_count"] = cnt["n"] if cnt else 0
+    return d
+
+
+@app.post("/versions", response_model=VersionOut, status_code=201)
+async def create_version(body: VersionCreate, conn=Depends(get_conn)):
+    """Tag the current state of done tasks as a named version."""
+    project = body.project or "default"
+    try:
+        version_id = database.create_version(conn, body.name, project, body.description, body.epic_ids)
+    except Exception as e:
+        if "UNIQUE constraint" in str(e):
+            raise HTTPException(409, f"Version '{body.name}' already exists for project '{project}'")
+        raise
+    row = conn.execute("SELECT * FROM versions WHERE id = ?", (version_id,)).fetchone()
+    return _version_with_count(conn, row)
+
+
+@app.get("/versions", response_model=list[VersionOut])
+async def list_versions(
+    project: Optional[str] = None,
+    conn=Depends(get_conn),
+):
+    """List all version tags."""
+    rows = database.list_versions(conn, project=project)
+    return [_version_with_count(conn, r) for r in rows]
+
+
+@app.delete("/versions/{version_id}", response_model=OkResponse)
+async def delete_version(version_id: int, conn=Depends(get_conn)):
+    """Delete a version tag and its task snapshot."""
+    row = conn.execute("SELECT * FROM versions WHERE id = ?", (version_id,)).fetchone()
+    if not row:
+        raise HTTPException(404, "Version not found")
+    conn.execute("DELETE FROM version_tasks WHERE version_id = ?", (version_id,))
+    conn.execute("DELETE FROM versions WHERE id = ?", (version_id,))
+    conn.commit()
+    return {"ok": True, "message": f"Version '{row['name']}' deleted"}
+
+
+@app.get("/versions/diff", response_model=VersionDiffOut)
+async def diff_versions(
+    project: str = Query(...),
+    to: str = Query(...),
+    frm: str = Query(None, alias="from"),
+    conn=Depends(get_conn),
+):
+    """
+    Return tasks added between two version tags.
+    `from` is optional — omit to get all tasks in `to`.
+    """
+    result = database.diff_versions(conn, project, frm, to)
+    if result is None:
+        raise HTTPException(404, "One or both versions not found")
+
+    # Enrich tasks (same as task list)
+    enriched = [_task_with_issue(conn, conn.execute(
+        "SELECT * FROM tasks WHERE id = ?", (t["id"],)
+    ).fetchone()) for t in result["tasks"]]
+
+    # Add task_count to version shapes
+    def _ver_out(v):
+        if v is None:
+            return None
+        cnt = conn.execute(
+            "SELECT COUNT(*) AS n FROM version_tasks WHERE version_id = ?", (v["id"],)
+        ).fetchone()
+        return {**v, "task_count": cnt["n"] if cnt else 0}
+
+    return {
+        "from_version": _ver_out(result["from_version"]),
+        "to_version": _ver_out(result["to_version"]),
+        "tasks": enriched,
+    }
 
 
 # ── Decisions ─────────────────────────────────────────────────────────────────

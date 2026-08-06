@@ -123,7 +123,7 @@
   /* ── KPI row ── */
   #kpi-row {
     display: grid;
-    grid-template-columns: repeat(4, 1fr);
+    grid-template-columns: repeat(5, 1fr);
     gap: 1px;
     background: var(--border);
     border-bottom: 1px solid var(--border);
@@ -446,6 +446,19 @@
   .copy-btn:hover { color: var(--text); opacity: 1; background: var(--surface); }
   .copy-btn.copied { color: var(--green); opacity: 1; }
 
+  /* ── Version badge ── */
+  .badge-version {
+    background: rgba(88,166,255,0.15);
+    color: var(--blue);
+  }
+
+  /* ── Diff chips ── */
+  .diff-added {
+    display: inline-block; margin: 2px 4px 2px 0;
+    background: rgba(63,185,80,0.1); border: 1px solid rgba(63,185,80,0.35);
+    border-radius: 4px; padding: 2px 8px; font-size: 11px; color: var(--green);
+  }
+
   /* ── Event feed ── */
   #event-feed {
     font-family: "SF Mono", "Fira Code", monospace;
@@ -473,6 +486,7 @@
   .event-type.epic_created       { color: var(--purple); }
   .event-type.agent_registered   { color: var(--yellow); }
   .event-type.task_github_linked { color: var(--purple); }
+  .event-type.version_created    { color: var(--blue); }
   .event-detail { color: var(--muted); }
 
   .empty { padding: 20px 16px; color: var(--muted); text-align: center; font-size: 12px; }
@@ -517,8 +531,9 @@
     #hero-title { font-size: 17px; }
     #hero-subtitle { font-size: 11px; }
 
-    /* KPI: 2×2 grid */
+    /* KPI: 2-col wrap */
     #kpi-row { grid-template-columns: repeat(2, 1fr); }
+    .kpi-card.kpi-versions { display: none; }
     .kpi-value { font-size: 26px; }
     .kpi-card  { padding: 12px 14px; }
 
@@ -609,6 +624,10 @@
     <div class="kpi-value kpi-purple" id="kpi-decisions-open">—</div>
     <div class="kpi-label">Decisions open</div>
   </div>
+  <div class="kpi-card kpi-versions" id="kpi-card-versions">
+    <div class="kpi-value kpi-blue" id="kpi-versions">—</div>
+    <div class="kpi-label">Versions tagged</div>
+  </div>
 </div>
 
 <!-- ── Meta bar ── -->
@@ -696,6 +715,24 @@
     </div>
   </div>
 
+  <!-- Versions -->
+  <div id="versions-section" style="display:none">
+    <div class="section-label">Versions — click to expand</div>
+    <div class="panel">
+      <div class="panel-header">Versions <span class="count" id="version-count">0</span></div>
+      <table>
+        <thead><tr>
+          <th>ID</th>
+          <th>Name</th>
+          <th>Tasks</th>
+          <th>Description</th>
+          <th>Tagged</th>
+        </tr></thead>
+        <tbody id="version-tbody"><tr><td colspan="5" class="empty">No versions tagged yet</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+
   <!-- Event feed -->
   <div>
     <div class="section-label">Live event feed</div>
@@ -717,7 +754,12 @@ let currentProject = '';  // '' = all projects
 // ── Data store ────────────────────────────────────────────────────────────────
 // tasks/decisions are NOT loaded globally — they are lazy-loaded per epic.
 // activeTasks holds only in_progress+blocked+pending for the cross-epic panels.
-let state = { epics: [], closedEpics: null, activeTasks: [], agents: [], projects: [], stats: {} };
+let state = { epics: [], closedEpics: null, activeTasks: [], agents: [], projects: [], stats: {}, versions: [] };
+
+// Per-version diff cache: versionDiffCache[versionId] = { from, tasks } | null (loading)
+const versionDiffCache = {};
+// Which version row is expanded: null | version id
+let expandedVersionId = null;
 let closedEpicsLoading = false;
 // closedEpics: null = not yet fetched; array = fetched data
 
@@ -750,7 +792,7 @@ async function loadAll() {
     const pq = projectParams();
     const sep = pq ? '&' : '?';
     const openEpicsParam = pq ? pq + '&status=open' : '?status=open';
-    const [epics, inProg, blocked, pending, agents, projects, stats] = await Promise.all([
+    const [epics, inProg, blocked, pending, agents, projects, stats, versions] = await Promise.all([
       get('/epics' + openEpicsParam),
       get('/tasks' + pq + sep + 'status=in_progress'),
       get('/tasks' + pq + sep + 'status=blocked'),
@@ -758,9 +800,10 @@ async function loadAll() {
       get('/agents'),
       get('/projects'),
       get('/stats' + pq),
+      get('/versions' + pq).catch(() => []),
     ]);
     // Preserve closedEpics cache unless project changed (onProjectChange clears it)
-    state = { epics, closedEpics: state.closedEpics, activeTasks: [...inProg, ...blocked, ...pending], agents, projects, stats };
+    state = { epics, closedEpics: state.closedEpics, activeTasks: [...inProg, ...blocked, ...pending], agents, projects, stats, versions };
     renderAll();
     updateProjectDropdown();
     updateKPIs();
@@ -828,11 +871,12 @@ function onProjectChange() {
 // ── KPI + Hero ────────────────────────────────────────────────────────────────
 
 function updateKPIs() {
-  const { stats } = state;
+  const { stats, versions } = state;
   document.getElementById('kpi-tasks-done').textContent     = stats.tasks_done     ?? '—';
   document.getElementById('kpi-tasks-open').textContent     = stats.tasks_open     ?? '—';
   document.getElementById('kpi-tasks-total').textContent    = stats.tasks_total    ?? '—';
   document.getElementById('kpi-decisions-open').textContent = stats.decisions_open ?? '—';
+  document.getElementById('kpi-versions').textContent       = versions.length || '—';
   document.getElementById('meta-updated').textContent =
     `Last updated: ${new Date().toLocaleTimeString()}`;
 }
@@ -996,6 +1040,7 @@ function renderAll() {
   renderPendingTasks();
   renderAgents();
   renderDecisions();
+  renderVersions();
 }
 
 // ── Epic detail panel (Task 8) ────────────────────────────────────────────────
@@ -1658,6 +1703,174 @@ function renderAgents() {
   }).join('');
 }
 
+// ── Version panel ─────────────────────────────────────────────────────────────
+
+function renderVersions() {
+  const section = document.getElementById('versions-section');
+  const { versions } = state;
+
+  if (!versions.length) {
+    section.style.display = 'none';
+    return;
+  }
+
+  section.style.display = '';
+  document.getElementById('version-count').textContent = versions.length;
+  const tbody = document.getElementById('version-tbody');
+  tbody.innerHTML = '';
+  const now = Math.floor(Date.now() / 1000);
+
+  for (const v of [...versions].reverse()) {  // newest first
+    const isExpanded = expandedVersionId === v.id;
+    const tr = document.createElement('tr');
+    tr.className = 'clickable' + (isExpanded ? ' expanded' : '');
+    tr.dataset.versionId = v.id;
+    const age = now - v.created_at;
+    tr.innerHTML = `
+      <td class="id-cell" style="color:var(--muted);font-family:monospace;font-size:12px">#${v.id}</td>
+      <td style="font-weight:500">
+        <span class="badge badge-version">${esc(v.name)}</span>
+      </td>
+      <td style="color:var(--muted);font-size:12px">${v.task_count}</td>
+      <td style="color:var(--muted);font-size:12px;max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(v.description || '—')}</td>
+      <td style="color:var(--muted);font-size:12px">${ageSince(age)}</td>
+    `;
+    tr.addEventListener('click', () => toggleVersionDetail(v.id));
+    tbody.appendChild(tr);
+
+    if (isExpanded) {
+      tbody.appendChild(buildVersionDetailRow(v));
+    }
+  }
+}
+
+function toggleVersionDetail(versionId) {
+  expandedVersionId = expandedVersionId === versionId ? null : versionId;
+  // Clear diff selection when collapsing
+  if (expandedVersionId === null) {
+    delete versionDiffCache[versionId];
+  }
+  renderVersions();
+}
+
+function buildVersionDetailRow(v) {
+  const detailTr = document.createElement('tr');
+  detailTr.className = 'detail-row';
+  const td = document.createElement('td');
+  td.colSpan = 5;
+
+  // Build the other-versions list for the diff selector
+  const others = state.versions.filter(x => x.id !== v.id);
+  const diffSelectId = `diff-select-${v.id}`;
+  const diffResultId = `diff-result-${v.id}`;
+  const diffSelectHtml = others.length
+    ? `<div style="margin-top:10px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+        <span class="detail-label" style="margin:0">Diff vs:</span>
+        <select id="${diffSelectId}" style="background:var(--surface);color:var(--text);border:1px solid var(--border2);border-radius:4px;padding:3px 8px;font-size:12px"
+                onchange="loadVersionDiff(${v.id}, this.value, '${diffResultId}')">
+          <option value="">— choose version —</option>
+          ${others.map(o => `<option value="${esc(o.name)}">${esc(o.name)}${o.description ? ' — ' + esc(o.description) : ''}</option>`).join('')}
+        </select>
+      </div>
+      <div id="${diffResultId}" style="margin-top:8px"></div>`
+    : '<span class="detail-value muted" style="font-size:12px">No other versions to diff against</span>';
+
+  // Build task chip list grouped by epic
+  const tasksById = `version-tasks-${v.id}`;
+  td.innerHTML = `
+    <div class="detail-panel single-col" style="gap:12px">
+      <div class="detail-field">
+        <span class="detail-label">Tasks in this version</span>
+        <div id="${tasksById}"><span class="detail-value muted">Loading…</span></div>
+      </div>
+      <div class="detail-field">
+        ${diffSelectHtml}
+      </div>
+    </div>
+  `;
+  detailTr.appendChild(td);
+
+  // Fetch tasks for this version
+  get(`/versions/diff?project=${encodeURIComponent(v.project)}&to=${encodeURIComponent(v.name)}`)
+    .then(data => {
+      const el = document.getElementById(tasksById);
+      if (!el) return;
+      const tasks = data.tasks || [];
+      if (!tasks.length) {
+        el.innerHTML = '<span class="detail-value muted">No tasks captured</span>';
+        return;
+      }
+      // Group by epic
+      const byEpic = {};
+      for (const t of tasks) {
+        const key = t.epic_id != null ? t.epic_id : null;
+        (byEpic[key] = byEpic[key] || []).push(t);
+      }
+      el.innerHTML = Object.entries(byEpic).map(([epicId, epicTasks]) => {
+        const allEpics = [...(state.epics || []), ...(state.closedEpics || [])];
+        const epic = epicId !== 'null' ? allEpics.find(e => e.id === parseInt(epicId)) : null;
+        const header = epic ? `Epic #${epic.id} — ${esc(epic.title)}` : epicId !== 'null' ? `Epic #${epicId}` : 'No epic';
+        return `
+          <div style="margin-bottom:6px">
+            <span style="font-size:10px;color:var(--cyan);text-transform:uppercase;letter-spacing:0.05em;font-weight:700">${header}</span><br>
+            ${epicTasks.map(t => `<span class="dep-chip">#${t.id} ${esc(t.title)} ${badge(t.status)}</span>`).join('')}
+          </div>`;
+      }).join('');
+    })
+    .catch(() => {
+      const el = document.getElementById(tasksById);
+      if (el) el.innerHTML = '<span class="detail-value muted">Failed to load tasks</span>';
+    });
+
+  return detailTr;
+}
+
+function loadVersionDiff(toVersionId, fromName, resultDivId) {
+  const el = document.getElementById(resultDivId);
+  if (!el) return;
+  if (!fromName) { el.innerHTML = ''; return; }
+
+  const toVer = state.versions.find(v => v.id === toVersionId);
+  if (!toVer) return;
+
+  el.innerHTML = '<span class="detail-value muted" style="font-size:12px">Loading diff…</span>';
+
+  const params = `project=${encodeURIComponent(toVer.project)}&to=${encodeURIComponent(toVer.name)}&from=${encodeURIComponent(fromName)}`;
+  get(`/versions/diff?${params}`)
+    .then(data => {
+      if (!el.isConnected) return;
+      const tasks = data.tasks || [];
+      if (!tasks.length) {
+        el.innerHTML = '<span class="detail-value muted" style="font-size:12px">No new tasks between these versions</span>';
+        return;
+      }
+      const byEpic = {};
+      for (const t of tasks) {
+        const key = t.epic_id != null ? t.epic_id : null;
+        (byEpic[key] = byEpic[key] || []).push(t);
+      }
+      const allEpics = [...(state.epics || []), ...(state.closedEpics || [])];
+      el.innerHTML = `
+        <div style="font-size:11px;color:var(--muted);margin-bottom:6px">
+          ${tasks.length} task${tasks.length !== 1 ? 's' : ''} added in <span class="badge badge-version">${esc(toVer.name)}</span> vs <span class="badge badge-version">${esc(fromName)}</span>
+        </div>
+        ${Object.entries(byEpic).map(([epicId, epicTasks]) => {
+          const epic = epicId !== 'null' ? allEpics.find(e => e.id === parseInt(epicId)) : null;
+          const header = epic ? `Epic #${epic.id} — ${esc(epic.title)}` : epicId !== 'null' ? `Epic #${epicId}` : 'No epic';
+          return `
+            <div style="margin-bottom:6px">
+              <span style="font-size:10px;color:var(--cyan);text-transform:uppercase;letter-spacing:0.05em;font-weight:700">${header}</span><br>
+              ${epicTasks.map(t => `<span class="diff-added">+ #${t.id} ${esc(t.title)}</span>`).join('')}
+            </div>`;
+        }).join('')}
+      `;
+    })
+    .catch(() => {
+      if (el.isConnected) el.innerHTML = '<span class="detail-value muted" style="font-size:12px">Failed to load diff</span>';
+    });
+}
+
+
 // ── Decision detail panel (Task 10) ──────────────────────────────────────────
 
 function renderDecisions() {
@@ -1779,7 +1992,8 @@ function connectSSE() {
     lastEventId = ev.id;
     appendEvent(ev);
     const stateChangers = ['task_claimed','task_completed','task_blocked','task_created',
-                           'epic_created','agent_registered','heartbeat','task_github_linked'];
+                           'epic_created','agent_registered','heartbeat','task_github_linked',
+                           'version_created'];
     if (stateChangers.includes(ev.type)) {
       loadAll();
     }

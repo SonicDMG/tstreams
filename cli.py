@@ -445,6 +445,117 @@ def decision_resolve(decision_id):
     click.echo(click.style(f"✔ Decision #{data['id']} resolved: {data['title']}", fg="green"))
 
 
+# ── Version ───────────────────────────────────────────────────────────────────
+
+@cli.group()
+def version():
+    """Tag software versions and generate changelogs."""
+    pass
+
+
+@version.command("tag")
+@click.argument("name")
+@click.option("--desc", default=None, help="Optional description for this version.")
+@click.option("--project", "proj", default=None, help="Project name (default: auto-detect)")
+@click.option("--epic", "epic_ids", multiple=True, type=int, help="Scope to epic ID(s). Repeatable: --epic 3 --epic 5")
+def version_tag(name, desc, proj, epic_ids):
+    """Snapshot done tasks as a named version tag (optionally scoped to epics)."""
+    data = _api("POST", "/versions", json={
+        "name": name,
+        "description": desc,
+        "project": proj or _detect_project(),
+        "epic_ids": list(epic_ids) if epic_ids else None,
+    })
+    click.echo(click.style(
+        f"✔ Version '{data['name']}' tagged for [{data['project']}] — {data['task_count']} task(s) captured",
+        fg="green",
+    ))
+
+
+@version.command("list")
+@click.option("--project", "proj", default=None, help="Filter by project (default: auto-detect). Use --all for all projects.")
+@click.option("--all", "all_projects", is_flag=True, help="Show versions from all projects.")
+def version_list(proj, all_projects):
+    """List all version tags."""
+    params = {} if all_projects else {"project": proj or _detect_project()}
+    rows = _api("GET", "/versions", params=params)
+    if not rows:
+        click.echo("No versions tagged yet.")
+        return
+    click.echo(f"{'ID':<5} {'PROJECT':<16} {'NAME':<20} {'TASKS':<8} CREATED")
+    click.echo("─" * 70)
+    now = int(time.time())
+    for v in rows:
+        age = now - v["created_at"]
+        age_str = f"{age // 86400}d ago" if age >= 86400 else f"{age // 3600}h ago" if age >= 3600 else f"{age // 60}m ago"
+        desc = f"  {v['description']}" if v.get("description") else ""
+        click.echo(f"{v['id']:<5} {v['project']:<16} {v['name']:<20} {v['task_count']:<8} {age_str}{desc}")
+
+
+@version.command("delete")
+@click.argument("version_id", type=int)
+def version_delete(version_id):
+    """Delete a version tag."""
+    data = _api("DELETE", f"/versions/{version_id}")
+    click.echo(click.style(f"✔ {data['message']}", fg="yellow"))
+
+
+@version.command("diff")
+@click.argument("to_version")
+@click.option("--from", "from_version", default=None, help="Base version (omit for initial release).")
+@click.option("--project", "proj", default=None, help="Project name (default: auto-detect)")
+@click.option("--format", "fmt", default="text", type=click.Choice(["text", "markdown"]), show_default=True)
+def version_diff(to_version, from_version, proj, fmt):
+    """Show tasks added between two version tags (changelog diff)."""
+    project = proj or _detect_project()
+    params = {"project": project, "to": to_version}
+    if from_version:
+        params["from"] = from_version
+    data = _api("GET", "/versions/diff", params=params)
+
+    frm = data.get("from_version")
+    to = data["to_version"]
+    tasks = data["tasks"]
+
+    if fmt == "markdown":
+        header = f"## Changelog: {to['name']}"
+        if frm:
+            header += f" (since {frm['name']})"
+        click.echo(header)
+        click.echo()
+        # Group by epic
+        by_epic: dict[str, list] = {}
+        for t in tasks:
+            key = str(t.get("epic_id") or "no epic")
+            by_epic.setdefault(key, []).append(t)
+        for epic_key, epic_tasks in by_epic.items():
+            click.echo(f"### Epic {epic_key}")
+            for t in epic_tasks:
+                desc = f" — {t['description']}" if t.get("description") else ""
+                click.echo(f"- **{t['title']}** (#{t['id']}){desc}")
+            click.echo()
+    else:
+        from_label = frm["name"] if frm else "(initial)"
+        click.echo(click.style(
+            f"\nChangelog: {project}  {from_label} → {to['name']}  ({len(tasks)} change(s))\n",
+            bold=True,
+        ))
+        if not tasks:
+            click.echo("  No new tasks between these versions.")
+            return
+        current_epic = None
+        for t in tasks:
+            if t.get("epic_id") != current_epic:
+                current_epic = t.get("epic_id")
+                click.echo(click.style(f"  Epic #{current_epic or '—'}", fg="cyan", bold=True))
+            icon = STATUS_EMOJI.get(t["status"], "?")
+            color = STATUS_COLOR.get(t["status"], "white")
+            click.echo(click.style(f"    {icon} #{t['id']} {t['title']}", fg=color))
+            if t.get("description"):
+                click.echo(f"       {t['description']}")
+        click.echo()
+
+
 # ── Agent ─────────────────────────────────────────────────────────────────────
 
 @cli.group()
