@@ -333,71 +333,73 @@ function EpicRows({ epic: e, drillDown, setDrillDown, currentProject, archived =
                     + New task
                   </button>
                 </div>
-                <div>
+                <div className="flex flex-col">
                   {!epicTasks
                     ? <span className="text-muted italic text-xs">Loading…</span>
                     : epicTasks.length === 0
                     ? <span className="text-muted italic text-xs">No tasks</span>
-                    : epicTasks.map(t => (
-                        <EpicTaskChip key={t.id} task={t} epicId={e.id}
-                          active={drillDown?.type === 'task' && drillDown.id === t.id}
-                          onSelect={() => setDrillDown(
-                            drillDown?.type === 'task' && drillDown.id === t.id
-                              ? { type: 'epic', id: e.id }
-                              : { type: 'task', id: t.id, epicId: e.id }
-                          )}
-                          onEdit={() => setEditTask(t)} />
-                      ))
+                    : epicTasks.map(t => {
+                        const isActive = drillDown?.type === 'task' && drillDown.id === t.id
+                        return (
+                          <div key={t.id}>
+                            <EpicTaskChip task={t} epicId={e.id}
+                              active={isActive}
+                              onSelect={() => setDrillDown(
+                                isActive
+                                  ? { type: 'epic', id: e.id }
+                                  : { type: 'task', id: t.id, epicId: e.id }
+                              )}
+                              onEdit={() => setEditTask(t)} />
+                            {isActive && epicTasks && (
+                              <EpicTaskDetail task={t} onEdit={() => setEditTask(t)} />
+                            )}
+                          </div>
+                        )
+                      })
                   }
                 </div>
               </div>
               {/* Decisions */}
               <div className="col-span-2 flex flex-col gap-1">
                 <span className="text-[10px] text-muted uppercase tracking-[0.05em] font-semibold">Decisions</span>
-                <div>
+                <div className="flex flex-col">
                   {!epicDecisions
                     ? <span className="text-muted italic text-xs">Loading…</span>
                     : epicDecisions.length === 0
                     ? <span className="text-muted italic text-xs">No decisions</span>
-                    : epicDecisions.map(d => (
-                        <span key={d.id}
-                          onClick={ev => { ev.stopPropagation(); setDrillDown({ type: 'decision', id: d.id, epicId: e.id }) }}
-                          className={`flex items-center gap-1 w-full mb-1 bg-surface border rounded px-2 py-[3px] text-[11px] cursor-pointer hover:bg-card
-                            ${drillDown?.type === 'decision' && drillDown.id === d.id ? 'bg-[rgba(57,208,216,0.1)] border-cyan text-cyan' : 'border-border2 text-blue'}`}>
-                          <CopyButton type="decision" id={d.id} title={d.title} />
-                          <span className="flex-1 min-w-0">#{d.id} {d.title}</span>
-                          <span className="flex-shrink-0"><StatusBadge status={d.status} /></span>
-                        </span>
-                      ))
+                    : epicDecisions.map(d => {
+                        const isActive = drillDown?.type === 'decision' && drillDown.id === d.id
+                        return (
+                          <div key={d.id}>
+                            <span
+                              onClick={ev => { ev.stopPropagation(); setDrillDown(isActive ? { type: 'epic', id: e.id } : { type: 'decision', id: d.id, epicId: e.id }) }}
+                              className={`flex items-center gap-1 w-full mb-1 bg-surface border rounded px-2 py-[3px] text-[11px] cursor-pointer hover:bg-card
+                                ${isActive ? 'bg-[rgba(57,208,216,0.1)] border-cyan text-cyan' : 'border-border2 text-blue'}`}>
+                              <CopyButton type="decision" id={d.id} title={d.title} />
+                              <span className="flex-1 min-w-0">#{d.id} {d.title}</span>
+                              <span className="flex-shrink-0"><StatusBadge status={d.status} /></span>
+                            </span>
+                            {isActive && (
+                              <div className="border border-border rounded mb-1 px-3 py-[10px] flex flex-col gap-2 bg-background">
+                                <span className="text-[10px] text-purple uppercase tracking-[0.05em] font-semibold">Decision #{d.id} detail</span>
+                                <div className="flex flex-col gap-1">
+                                  <span className="text-[10px] text-muted uppercase tracking-[0.05em] font-semibold">Content</span>
+                                  {d.content
+                                    ? <MarkdownContent>{d.content}</MarkdownContent>
+                                    : <span className="text-muted italic text-xs">No content</span>}
+                                </div>
+                                <div className="flex flex-col gap-1">
+                                  <span className="text-[10px] text-muted uppercase tracking-[0.05em] font-semibold">Status</span>
+                                  <StatusBadge status={d.status} />
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        )
+                      })
                   }
                 </div>
               </div>
-              {/* Drilled-down task detail */}
-              {drillDown?.type === 'task' && drillDown.epicId === e.id && epicTasks && (() => {
-                const t = epicTasks.find(t => t.id === drillDown.id)
-                if (!t) return null
-                return <EpicTaskDetail task={t} onEdit={() => setEditTask(t)} />
-              })()}
-              {/* Drilled-down decision detail */}
-              {drillDown?.type === 'decision' && drillDown.epicId === e.id && epicDecisions && (() => {
-                const d = epicDecisions.find(d => d.id === drillDown.id)
-                if (!d) return null
-                return (
-                  <div className="col-span-2 border-t border-border pt-[10px] mt-1 flex flex-col gap-1">
-                    <span className="text-[10px] text-purple uppercase tracking-[0.05em] font-semibold">Decision #{d.id} detail</span>
-                    <div className="flex flex-col gap-1">
-                      <span className="text-[10px] text-muted uppercase tracking-[0.05em] font-semibold">Content</span>
-                      {d.content
-                        ? <MarkdownContent>{d.content}</MarkdownContent>
-                        : <span className="text-muted italic text-xs">No content</span>}
-                    </div>
-                    <div className="flex flex-col gap-1 mt-1">
-                      <span className="text-[10px] text-muted uppercase tracking-[0.05em] font-semibold">Status</span>
-                      <StatusBadge status={d.status} />
-                    </div>
-                  </div>
-                )
-              })()}
             </div>
           </td>
         </tr>
@@ -444,7 +446,7 @@ function EpicTaskDetail({ task: t, onEdit }: { task: Task; onEdit: () => void })
   const { data: deps = [] } = useQuery({ queryKey: QK.taskDeps(t.id), queryFn: () => api.taskDeps(t.id) })
 
   return (
-    <div className="col-span-2 border-t border-border pt-[10px] mt-1 grid grid-cols-2 gap-[10px_24px]">
+    <div className="border border-border rounded mb-1 px-3 py-[10px] grid grid-cols-2 gap-[10px_24px] bg-background">
       <div className="col-span-2 flex items-center justify-between">
         <span className="text-[10px] text-cyan uppercase tracking-[0.05em] font-semibold">Task #{t.id} detail</span>
         <button onClick={onEdit}
