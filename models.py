@@ -22,6 +22,12 @@ class TaskCreate(BaseModel):
     task_type: Optional[str] = "implementation"
 
 
+class TaskUpdate(BaseModel):
+    title: Optional[str] = None
+    description: Optional[str] = None
+    task_type: Optional[str] = None
+
+
 class TaskClaim(BaseModel):
     agent_id: str
 

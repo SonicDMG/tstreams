@@ -19,6 +19,17 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
+# ── Static assets from Vite build — mounted after app is defined ──────────────
+# (done at module level so it's available before first request)
+def _mount_static(application: "FastAPI") -> None:
+    assets = Path(__file__).parent / "dashboard" / "dist" / "assets"
+    if assets.exists():
+        application.mount(
+            "/dashboard/assets",
+            StaticFiles(directory=str(assets)),
+            name="dashboard-assets",
+        )
+
 import db as database
 import github as github_sync
 from models import (
@@ -40,6 +51,7 @@ from models import (
     TaskHeartbeat,
     TaskOut,
     TaskTestingUpdate,
+    TaskUpdate,
     TaskVerify,
     VerificationOut,
     VersionCreate,
@@ -83,16 +95,27 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ── Dashboard (served from dashboard/index.html) ──────────────────────────────
+_mount_static(app)
 
-DASHBOARD_PATH = Path(__file__).parent / "dashboard" / "index.html"
+# ── Dashboard (served from Vite build in dashboard/dist/) ─────────────────────
+
+_DIST = Path(__file__).parent / "dashboard" / "dist"
+_DIST_INDEX = _DIST / "index.html"
+_LEGACY_INDEX = Path(__file__).parent / "dashboard" / "index.html"
 
 
 @app.get("/dashboard", response_class=HTMLResponse, include_in_schema=False)
 async def dashboard():
-    if not DASHBOARD_PATH.exists():
-        return HTMLResponse("<h1>Dashboard not found</h1><p>Run from the tstreams repo root.</p>", status_code=404)
-    return HTMLResponse(DASHBOARD_PATH.read_text())
+    if _DIST_INDEX.exists():
+        return HTMLResponse(_DIST_INDEX.read_text())
+    # Fallback to legacy single-file dashboard if dist hasn't been built yet
+    if _LEGACY_INDEX.exists():
+        return HTMLResponse(_LEGACY_INDEX.read_text())
+    return HTMLResponse(
+        "<h1>Dashboard not found</h1>"
+        "<p>Run <code>npm run build</code> inside <code>dashboard/</code>.</p>",
+        status_code=404,
+    )
 
 
 # ── SSE event stream ──────────────────────────────────────────────────────────
@@ -243,6 +266,20 @@ async def get_task(task_id: int, conn=Depends(get_conn)):
     row = database.get_task(conn, task_id)
     if not row:
         raise HTTPException(404, "Task not found")
+    return _task_with_issue(conn, row)
+
+
+@app.patch("/tasks/{task_id}", response_model=TaskOut)
+async def patch_task(task_id: int, body: TaskUpdate, conn=Depends(get_conn)):
+    updated = database.update_task(
+        conn, task_id,
+        title=body.title,
+        description=body.description,
+        task_type=body.task_type,
+    )
+    if not updated:
+        raise HTTPException(404, "Task not found or no fields provided")
+    row = database.get_task(conn, task_id)
     return _task_with_issue(conn, row)
 
 

@@ -1,0 +1,56 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --bg:      #0a0e14;
+  --surface: #0f1318;
+  --card:    #131920;
+  --border:  #1e2732;
+  --border2: #252f3a;
+  --text:    #cdd9e5;
+  --muted:   #636e7b;
+  --green:   #3fb950;
+  --cyan:    #39d0d8;
+  --red:     #f85149;
+  --yellow:  #d29922;
+  --blue:    #58a6ff;
+  --purple:  #bc8cff;
+  --accent:  #1f6feb;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: -apple-system, "Segoe UI", system-ui, sans-serif;
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+/* Braille spinner used for active tasks / agents */
+@keyframes braille-spin {
+  0%   { content: '⣾'; }
+  12%  { content: '⣽'; }
+  25%  { content: '⣻'; }
+  37%  { content: '⢿'; }
+  50%  { content: '⡿'; }
+  62%  { content: '⣟'; }
+  75%  { content: '⣯'; }
+  87%  { content: '⣷'; }
+}
+.agent-working::before {
+  content: '⣾';
+  animation: braille-spin steps(1) 0.8s infinite;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(-3px); }
+  to   { opacity: 1; }
+}
+
+@keyframes slideInRight {
+  from { transform: translateX(100%); }
+  to   { transform: translateX(0); }
+}

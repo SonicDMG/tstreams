@@ -405,6 +405,28 @@ def unblock_task(conn, task_id: int) -> bool:
     return cur.rowcount > 0
 
 
+def update_task(conn, task_id: int, title: str = None, description: str = None, task_type: str = None) -> bool:
+    """Partial update of task fields. Only provided (non-None) fields are changed."""
+    fields = {}
+    if title       is not None: fields["title"]       = title
+    if description is not None: fields["description"] = description
+    if task_type   is not None: fields["task_type"]   = task_type
+    if not fields:
+        return False
+    set_clause = ", ".join(f"{k} = ?" for k in fields)
+    values = list(fields.values()) + [int(time.time()), task_id]
+    cur = conn.execute(
+        f"UPDATE tasks SET {set_clause}, updated_at = ? WHERE id = ?",
+        values,
+    )
+    conn.commit()
+    if cur.rowcount > 0:
+        task = get_task(conn, task_id)
+        project = task["project"] if task else None
+        _emit(conn, project, task_id, "system", "task_updated", "{}")
+    return cur.rowcount > 0
+
+
 # ── Decisions ─────────────────────────────────────────────────────────────────
 
 def create_decision(conn, title: str, content: str, epic_id: int = None) -> int:
