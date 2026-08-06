@@ -278,6 +278,7 @@ function EpicRows({ epic: e, drillDown, setDrillDown, currentProject, archived =
         </td>
         <td className="px-3 py-[9px] border-b border-border align-middle text-right">
           <span className="inline-flex items-center gap-2">
+            <CopyButton type="epic" id={e.id} title={e.title} />
             {!archived && (
               <button
                 onClick={ev => { ev.stopPropagation(); setConfirmClose(true) }}
@@ -286,7 +287,6 @@ function EpicRows({ epic: e, drillDown, setDrillDown, currentProject, archived =
                 ✕
               </button>
             )}
-            <CopyButton type="epic" id={e.id} title={e.title} />
           </span>
         </td>
       </tr>
@@ -362,10 +362,11 @@ function EpicRows({ epic: e, drillDown, setDrillDown, currentProject, archived =
                     : epicDecisions.map(d => (
                         <span key={d.id}
                           onClick={ev => { ev.stopPropagation(); setDrillDown({ type: 'decision', id: d.id, epicId: e.id }) }}
-                          className={`inline-block mr-1 mb-1 bg-surface border rounded px-2 py-[2px] text-[11px] cursor-pointer hover:bg-card
+                          className={`flex items-center gap-1 w-full mb-1 bg-surface border rounded px-2 py-[3px] text-[11px] cursor-pointer hover:bg-card
                             ${drillDown?.type === 'decision' && drillDown.id === d.id ? 'bg-[rgba(57,208,216,0.1)] border-cyan text-cyan' : 'border-border2 text-blue'}`}>
-                          #{d.id} {d.title} <StatusBadge status={d.status} />
                           <CopyButton type="decision" id={d.id} title={d.title} />
+                          <span className="flex-1 min-w-0">#{d.id} {d.title}</span>
+                          <span className="flex-shrink-0"><StatusBadge status={d.status} /></span>
                         </span>
                       ))
                   }
@@ -420,17 +421,20 @@ function EpicTaskChip({ task: t, epicId, active, onSelect, onEdit }: {
   const hue = projectHue(t.project ?? '')
   void epicId, void hue
   return (
-    <span className={`inline-flex items-center gap-1 mr-1 mb-1 bg-surface border rounded px-2 py-[2px] text-[11px] cursor-pointer hover:bg-card group/chip
+    <span className={`flex items-center gap-1 w-full mb-1 bg-surface border rounded px-2 py-[3px] text-[11px] cursor-pointer hover:bg-card group/chip
       ${active ? 'bg-[rgba(57,208,216,0.1)] border-cyan text-cyan' : 'border-border2 text-blue'}`}>
-      <span onClick={e => { e.stopPropagation(); onSelect() }}>
-        #{t.id} {t.title} <StatusBadge status={t.status} />
+      <CopyButton type="task" id={t.id} title={t.title} />
+      <span className="flex-1 min-w-0" onClick={e => { e.stopPropagation(); onSelect() }}>
+        #{t.id} {t.title}
       </span>
       <button onClick={e => { e.stopPropagation(); onEdit() }}
         title="Edit task"
-        className="text-[10px] text-muted hover:text-foreground bg-transparent border-0 cursor-pointer opacity-0 group-hover/chip:opacity-100 transition-opacity px-[2px] leading-none">
+        className="text-[10px] text-muted hover:text-foreground bg-transparent border-0 cursor-pointer opacity-0 group-hover/chip:opacity-100 transition-opacity px-[2px] leading-none flex-shrink-0">
         ✎
       </button>
-      <CopyButton type="task" id={t.id} title={t.title} />
+      <span className="flex-shrink-0" onClick={e => { e.stopPropagation(); onSelect() }}>
+        <StatusBadge status={t.status} />
+      </span>
     </span>
   )
 }

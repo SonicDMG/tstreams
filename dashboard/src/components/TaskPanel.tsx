@@ -80,7 +80,7 @@ export function TaskPanel({ type, project, agentCurrentTasks }: TaskPanelProps) 
                     >
                       <td className="px-4 py-[9px] border-b border-border align-middle font-mono text-xs text-muted"
                         style={{ borderLeft: `3px solid ${borderColor}` }}>
-                        #{t.id}<CopyButton type="task" id={t.id} title={t.title} />
+                        <CopyButton type="task" id={t.id} title={t.title} />#{t.id}
                       </td>
                       <Td className="col-project"><ProjectPill name={t.project} /></Td>
                       <Td bold className="max-w-[260px] whitespace-nowrap overflow-hidden text-ellipsis">

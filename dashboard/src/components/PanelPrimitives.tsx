@@ -192,7 +192,7 @@ function DecisionRow({ decision: d, expanded, onToggle }: {
         className={`cursor-pointer hover:[&>td]:bg-white/[0.025] ${expanded ? '[&>td]:bg-[rgba(31,111,235,0.07)] [&>td:first-child]:border-l-2 [&>td:first-child]:border-accent' : ''}`}
         onClick={onToggle}
       >
-        <Td mono muted>#{d.id}<CopyButton type="decision" id={d.id} title={d.title} /></Td>
+        <Td mono muted><CopyButton type="decision" id={d.id} title={d.title} />#{d.id}</Td>
         <Td bold>{d.title}</Td>
         <Td muted small>{d.epic_id ? `#${d.epic_id}` : '—'}</Td>
         <Td>

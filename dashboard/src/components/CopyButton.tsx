@@ -23,7 +23,7 @@ export function CopyButton({ type, id, title }: CopyButtonProps) {
       onClick={handleClick}
       tabIndex={-1}
       title="Copy ID & title"
-      className={`inline-flex items-center justify-center w-[18px] h-[18px] ml-[5px] bg-transparent border-0 cursor-pointer rounded align-middle p-0 transition-colors
+      className={`inline-flex items-center justify-center w-[18px] h-[18px] mr-[5px] bg-transparent border-0 cursor-pointer rounded align-middle p-0 transition-colors
         ${copied ? 'text-green opacity-100' : 'text-muted opacity-35 hover:text-foreground hover:opacity-100 hover:bg-surface'}`}
     >
       <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor">
