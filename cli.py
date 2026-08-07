@@ -141,13 +141,16 @@ def server_start(db, port, host):
     env["TSTREAMS_PORT"] = str(port)
     click.echo(f"Starting tstreams on {host}:{port} …")
     click.echo(f"Dashboard → http://{host}:{port}/dashboard")
-    # Prefer uv run if available, fall back to sys.executable
-    import shutil
-    uv = shutil.which("uv")
-    if uv:
-        cmd = [uv, "run", "uvicorn", "api:app", "--host", host, "--port", str(port)]
-    else:
+    # Prefer a directly-importable uvicorn; fall back to `uv run` if not installed.
+    import importlib.util, shutil
+    if importlib.util.find_spec("uvicorn") is not None:
         cmd = [sys.executable, "-m", "uvicorn", "api:app", "--host", host, "--port", str(port)]
+    else:
+        uv = shutil.which("uv")
+        if uv:
+            cmd = [uv, "run", "uvicorn", "api:app", "--host", host, "--port", str(port)]
+        else:
+            cmd = [sys.executable, "-m", "uvicorn", "api:app", "--host", host, "--port", str(port)]
     subprocess.run(cmd, env=env)
 
 
