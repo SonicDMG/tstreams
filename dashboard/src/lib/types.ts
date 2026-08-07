@@ -58,7 +58,7 @@ export interface Decision {
   id: number
   title: string
   content?: string
-  status: 'open' | 'decided'
+  status: 'open' | 'decided' | 'rejected'
   epic_id?: number
   created_at: number
 }

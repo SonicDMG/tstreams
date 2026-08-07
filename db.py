@@ -471,6 +471,16 @@ def resolve_decision(conn, decision_id: int) -> dict | None:
     return conn.execute("SELECT * FROM decisions WHERE id = ?", (decision_id,)).fetchone()
 
 
+def reject_decision(conn, decision_id: int) -> dict | None:
+    row = conn.execute("SELECT * FROM decisions WHERE id = ?", (decision_id,)).fetchone()
+    if not row:
+        return None
+    conn.execute("UPDATE decisions SET status = 'rejected' WHERE id = ?", (decision_id,))
+    conn.commit()
+    _emit(conn, None, None, None, "decision_rejected", f'{{"decision_id": {decision_id}}}')
+    return conn.execute("SELECT * FROM decisions WHERE id = ?", (decision_id,)).fetchone()
+
+
 # ── Agents ────────────────────────────────────────────────────────────────────
 
 def register_agent(conn, agent_id: str) -> None:

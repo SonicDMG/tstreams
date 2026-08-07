@@ -164,7 +164,7 @@ export function DecisionPanel({ loadedEpicIds, decisionsOpenCount }: DecisionPan
   )
 }
 
-// ── Decision Row (with resolve action) ───────────────────────────────────────
+// ── Decision Row (with resolve/reject actions) ────────────────────────────────
 
 function DecisionRow({ decision: d, expanded, onToggle }: {
   decision: Decision
@@ -172,17 +172,26 @@ function DecisionRow({ decision: d, expanded, onToggle }: {
   onToggle: () => void
 }) {
   const qc = useQueryClient()
+  const [menuOpen, setMenuOpen] = useState(false)
+
+  function invalidate() {
+    if (d.epic_id) qc.invalidateQueries({ queryKey: QK.epicDecs(d.epic_id) })
+    qc.invalidateQueries({ queryKey: QK.stats() })
+  }
 
   const resolveMut = useMutation({
     mutationFn: () => api.resolveDecision(d.id),
-    onSuccess: () => {
-      if (d.epic_id) qc.invalidateQueries({ queryKey: QK.epicDecs(d.epic_id) })
-      qc.invalidateQueries({ queryKey: QK.stats() })
-      showSuccess(`Decision #${d.id} resolved`)
-    },
+    onSuccess: () => { invalidate(); setMenuOpen(false); showSuccess(`Decision #${d.id} resolved`) },
     onError: (err) => showError(errorMessage(err)),
   })
 
+  const rejectMut = useMutation({
+    mutationFn: () => api.rejectDecision(d.id),
+    onSuccess: () => { invalidate(); setMenuOpen(false); showSuccess(`Decision #${d.id} rejected`) },
+    onError: (err) => showError(errorMessage(err)),
+  })
+
+  const isPending = resolveMut.isPending || rejectMut.isPending
   const isOpen = d.status === 'open'
 
   return (
@@ -199,13 +208,31 @@ function DecisionRow({ decision: d, expanded, onToggle }: {
           <span className="inline-flex items-center gap-2">
             <StatusBadge status={d.status} />
             {isOpen && (
-              <button
-                onClick={e => { e.stopPropagation(); resolveMut.mutate() }}
-                disabled={resolveMut.isPending}
-                title="Resolve decision"
-                className="text-[10px] text-muted hover:text-green bg-transparent border border-muted/30 hover:border-green/60 rounded px-[6px] py-[2px] cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed">
-                {resolveMut.isPending ? '…' : 'Resolve'}
-              </button>
+              <span className="relative" onClick={e => e.stopPropagation()}>
+                <button
+                  onClick={() => setMenuOpen(v => !v)}
+                  disabled={isPending}
+                  title="Close decision"
+                  className="text-[10px] text-muted hover:text-accent bg-transparent border border-muted/30 hover:border-accent/60 rounded px-[6px] py-[2px] cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed">
+                  {isPending ? '…' : 'Close ▾'}
+                </button>
+                {menuOpen && (
+                  <span className="absolute right-0 top-full mt-1 z-50 flex flex-col bg-card border border-border rounded shadow-lg min-w-[110px]">
+                    <button
+                      onClick={() => resolveMut.mutate()}
+                      disabled={isPending}
+                      className="text-left text-[11px] px-3 py-[6px] text-green hover:bg-surface disabled:opacity-40 cursor-pointer">
+                      ✓ Resolve
+                    </button>
+                    <button
+                      onClick={() => rejectMut.mutate()}
+                      disabled={isPending}
+                      className="text-left text-[11px] px-3 py-[6px] text-red hover:bg-surface disabled:opacity-40 cursor-pointer">
+                      ✕ Reject
+                    </button>
+                  </span>
+                )}
+              </span>
             )}
           </span>
         </Td>

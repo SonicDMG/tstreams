@@ -1,6 +1,6 @@
 import { projectHue } from '../lib/utils'
 
-type Status = 'pending' | 'in_progress' | 'blocked' | 'done' | 'open' | 'decided' | string
+type Status = 'pending' | 'in_progress' | 'blocked' | 'done' | 'open' | 'decided' | 'rejected' | string
 
 const STATUS_STYLES: Record<string, string> = {
   pending:     'bg-[rgba(99,110,123,0.2)]  text-muted',
@@ -9,6 +9,7 @@ const STATUS_STYLES: Record<string, string> = {
   blocked:     'bg-[rgba(248,81,73,0.15)]  text-red',
   open:        'bg-[rgba(99,110,123,0.2)]  text-muted',
   decided:     'bg-[rgba(188,140,255,0.15)] text-purple',
+  rejected:    'bg-[rgba(248,81,73,0.15)]   text-red',
 }
 
 export function StatusBadge({ status }: { status: Status }) {

@@ -113,6 +113,9 @@ export const api = {
   resolveDecision: (decisionId: number) =>
     req<Decision>(`/decisions/${decisionId}/resolve`, { method: 'POST' }),
 
+  rejectDecision: (decisionId: number) =>
+    req<Decision>(`/decisions/${decisionId}/reject`, { method: 'POST' }),
+
   updateDecision: (decisionId: number, patch: { title?: string; content?: string }) =>
     req<Decision>(`/decisions/${decisionId}`, {
       method: 'PATCH',

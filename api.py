@@ -637,6 +637,14 @@ async def resolve_decision(decision_id: int, conn=Depends(get_conn)):
     return dict(row)
 
 
+@app.post("/decisions/{decision_id}/reject", response_model=DecisionOut)
+async def reject_decision(decision_id: int, conn=Depends(get_conn)):
+    row = database.reject_decision(conn, decision_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="Decision not found")
+    return dict(row)
+
+
 # ── Agents ────────────────────────────────────────────────────────────────────
 
 @app.post("/agents", response_model=AgentOut, status_code=201)
@@ -664,7 +672,7 @@ async def get_stats(project: Optional[str] = None, conn=Depends(get_conn)):
     tasks_open  = tasks_total - tasks_done
     if project:
         dec_rows = conn.execute(
-            "SELECT COUNT(*) AS n FROM decisions WHERE status != 'decided'"
+            "SELECT COUNT(*) AS n FROM decisions WHERE status = 'open'"
             " AND epic_id IN (SELECT id FROM epics WHERE project = ?)",
             (project,)
         ).fetchone()
@@ -674,7 +682,7 @@ async def get_stats(project: Optional[str] = None, conn=Depends(get_conn)):
         ).fetchone()
     else:
         dec_rows = conn.execute(
-            "SELECT COUNT(*) AS n FROM decisions WHERE status != 'decided'"
+            "SELECT COUNT(*) AS n FROM decisions WHERE status = 'open'"
         ).fetchone()
         closed_row = conn.execute(
             "SELECT COUNT(*) AS n FROM epics WHERE status = 'closed'"
