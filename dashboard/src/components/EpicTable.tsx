@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { MarkdownContent } from './MarkdownContent'
 import { QK } from '../lib/queryKeys'
@@ -26,6 +26,22 @@ export function EpicTable() {
     queryKey: QK.stats(currentProject),
     queryFn: () => api.stats(currentProject),
   })
+
+  // Hoist agent/active-task queries here (once) to power the live-task indicator
+  const { data: agents = [] } = useQuery({ queryKey: QK.agents(), queryFn: api.agents })
+  const { data: activeTasks = [] } = useQuery({
+    queryKey: QK.tasks(currentProject, 'in_progress'),
+    queryFn: () => api.tasks(currentProject, 'in_progress'),
+  })
+  const liveEpicIds = useMemo<Set<number>>(() => {
+    const ids = new Set<number>()
+    for (const t of activeTasks) {
+      if (t.epic_id != null && agents.some(a => a.current_task === t.id)) {
+        ids.add(t.epic_id)
+      }
+    }
+    return ids
+  }, [activeTasks, agents])
 
   const [sortCol, setSortCol] = useState<SortCol>('id')
   const [sortDir, setSortDir] = useState<SortDir>('desc')
@@ -137,7 +153,8 @@ export function EpicTable() {
             )}
             {sorted.map(e => (
               <EpicRows key={e.id} epic={e}
-                drillDown={drillDown} setDrillDown={setDrillDown} currentProject={currentProject} />
+                drillDown={drillDown} setDrillDown={setDrillDown} currentProject={currentProject}
+                liveEpicIds={liveEpicIds} />
             ))}
             {/* Archive toggle */}
             {closedCount > 0 && (
@@ -154,7 +171,8 @@ export function EpicTable() {
                   : (closedEpics ?? []).map(e => (
                       <EpicRows key={e.id} epic={e}
                         drillDown={drillDown} setDrillDown={setDrillDown}
-                        currentProject={currentProject} archived />
+                        currentProject={currentProject} archived
+                        liveEpicIds={liveEpicIds} />
                     ))
                 )}
               </>
@@ -168,12 +186,13 @@ export function EpicTable() {
 
 // ── Single epic row + optional detail row ─────────────────────────────────────
 
-function EpicRows({ epic: e, drillDown, setDrillDown, currentProject, archived = false }: {
+function EpicRows({ epic: e, drillDown, setDrillDown, currentProject, archived = false, liveEpicIds }: {
   epic: Epic
   drillDown: ReturnType<typeof useDrillDown>['drillDown']
   setDrillDown: ReturnType<typeof useDrillDown>['setDrillDown']
   currentProject: string
   archived?: boolean
+  liveEpicIds: Set<number>
 }) {
   const qc = useQueryClient()
   const [editTask, setEditTask] = useState<Task | null>(null)
@@ -209,15 +228,7 @@ function EpicRows({ epic: e, drillDown, setDrillDown, currentProject, archived =
     enabled: !!isExpanded,
   })
 
-  // Check if any agent is live on this epic
-  const { data: agents = [] } = useQuery({ queryKey: QK.agents(), queryFn: api.agents })
-  const { data: activeTasks = [] } = useQuery({
-    queryKey: QK.tasks(currentProject, 'in_progress'),
-    queryFn: () => api.tasks(currentProject, 'in_progress'),
-  })
-  const epicHasLiveTask = activeTasks.some(t =>
-    t.epic_id === e.id && agents.some(a => a.current_task === t.id)
-  )
+  const epicHasLiveTask = liveEpicIds.has(e.id)
 
   const tasksDone  = e.done_count ?? 0
   const tasksTotal = e.task_count ?? 0
