@@ -19,11 +19,14 @@ interface SSEProviderProps {
   project?: string
 }
 
+const SSE_CURSOR_KEY = 'tstreams_sse_last_id'
+
 export function SSEProvider({ children, project }: SSEProviderProps) {
   const queryClient = useQueryClient()
   const [status, setStatus] = useState<SSEStatus>('connecting')
   const [events, setEvents] = useState<SSEEvent[]>([])
-  const lastIdRef = useRef(0)
+  // Seed from sessionStorage so a page refresh doesn't replay the full history
+  const lastIdRef = useRef(Number(sessionStorage.getItem(SSE_CURSOR_KEY) ?? 0))
   const esRef = useRef<EventSource | null>(null)
 
   useEffect(() => {
@@ -40,6 +43,7 @@ export function SSEProvider({ children, project }: SSEProviderProps) {
       es.onmessage = (e) => {
         const ev: SSEEvent = JSON.parse(e.data)
         lastIdRef.current = ev.id
+        sessionStorage.setItem(SSE_CURSOR_KEY, String(ev.id))
 
         // Prepend to feed (newest first), cap at 100
         setEvents(prev => [ev, ...prev].slice(0, 100))

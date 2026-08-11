@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from 'react'
+import { useState, useMemo, useEffect, useCallback } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { MarkdownContent } from './MarkdownContent'
 import { QK } from '../lib/queryKeys'
@@ -51,14 +51,17 @@ export function EpicTable({ epicFilter, onEpicFilterChange }: EpicTableProps) {
   const [sortCol, setSortCol] = useState<SortCol>('id')
   const [sortDir, setSortDir] = useState<SortDir>('desc')
   const [archiveOpen, setArchiveOpen] = useState(false)
-  const [closedEpics, setClosedEpics] = useState<Epic[] | null>(null)
-  const [loadingClosed, setLoadingClosed] = useState(false)
 
-  // Reset archive state whenever the project filter changes
+  // Reset archive whenever the project filter changes
   useEffect(() => {
     setArchiveOpen(false)
-    setClosedEpics(null)
   }, [currentProject])
+
+  const { data: closedEpics = [], isFetching: loadingClosed } = useQuery({
+    queryKey: QK.epics(currentProject, 'closed'),
+    queryFn: () => api.epics(currentProject, 'closed'),
+    enabled: archiveOpen,
+  })
 
   function handleSort(col: SortCol) {
     if (sortCol === col) setSortDir(d => d === 'asc' ? 'desc' : 'asc')
@@ -92,18 +95,7 @@ export function EpicTable({ epicFilter, onEpicFilterChange }: EpicTableProps) {
     })
   }
 
-  async function toggleArchive() {
-    setArchiveOpen(o => !o)
-    if (!archiveOpen && closedEpics === null && !loadingClosed) {
-      setLoadingClosed(true)
-      try {
-        const closed = await api.epics(currentProject, 'closed')
-        setClosedEpics(closed)
-      } finally {
-        setLoadingClosed(false)
-      }
-    }
-  }
+  const toggleArchive = useCallback(() => setArchiveOpen(o => !o), [])
 
   const sorted = applySort(applyFilter(openEpics))
   const closedCount = stats?.closed_epic_count ?? 0
@@ -175,7 +167,7 @@ export function EpicTable({ epicFilter, onEpicFilterChange }: EpicTableProps) {
                 </tr>
                 {archiveOpen && (loadingClosed
                   ? <tr><td colSpan={6} className="text-center text-muted text-xs py-5 px-4">Loading…</td></tr>
-                  : (closedEpics ?? []).map(e => (
+                  : closedEpics.map(e => (
                       <EpicRows key={e.id} epic={e}
                         drillDown={drillDown} setDrillDown={setDrillDown}
                         currentProject={currentProject} archived
