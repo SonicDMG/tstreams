@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { MarkdownContent } from './MarkdownContent'
 import { QK } from '../lib/queryKeys'
@@ -16,7 +16,12 @@ import { showError, showSuccess, errorMessage } from '../lib/toast'
 type SortCol = 'id' | 'project' | 'title' | 'status' | 'progress'
 type SortDir = 'asc' | 'desc'
 
-export function EpicTable() {
+interface EpicTableProps {
+  epicFilter: string | null
+  onEpicFilterChange: (filter: string | null) => void
+}
+
+export function EpicTable({ epicFilter, onEpicFilterChange }: EpicTableProps) {
   const { currentProject, drillDown, setDrillDown } = useDrillDown()
   const { data: openEpics = [] } = useQuery({
     queryKey: QK.epics(currentProject, 'open'),
@@ -45,13 +50,15 @@ export function EpicTable() {
 
   const [sortCol, setSortCol] = useState<SortCol>('id')
   const [sortDir, setSortDir] = useState<SortDir>('desc')
-  const [epicFilter, setEpicFilter] = useState<string | null>(null)
   const [archiveOpen, setArchiveOpen] = useState(false)
   const [closedEpics, setClosedEpics] = useState<Epic[] | null>(null)
   const [loadingClosed, setLoadingClosed] = useState(false)
 
-  // Expose kpiClick for parent to call
-  // (parent passes epicFilter state down via props in the real integration)
+  // Reset archive state whenever the project filter changes
+  useEffect(() => {
+    setArchiveOpen(false)
+    setClosedEpics(null)
+  }, [currentProject])
 
   function handleSort(col: SortCol) {
     if (sortCol === col) setSortDir(d => d === 'asc' ? 'desc' : 'asc')
@@ -138,14 +145,14 @@ export function EpicTable() {
               <tr>
                 <td colSpan={6} className="px-4 py-[6px] text-[11px] text-muted bg-surface border-b border-border">
                   Showing {sorted.length} of {openEpics.length} open epics ·{' '}
-                  <span className="text-blue cursor-pointer" onClick={() => setEpicFilter(null)}>clear filter</span>
+                  <span className="text-blue cursor-pointer" onClick={() => onEpicFilterChange(null)}>clear filter</span>
                 </td>
               </tr>
             )}
             {sorted.length === 0 && openEpics.length > 0 && (
               <tr><td colSpan={6} className="text-center text-muted text-xs py-5 px-4">
                 No epics match this filter ·{' '}
-                <span className="text-blue cursor-pointer" onClick={() => setEpicFilter(null)}>clear</span>
+                <span className="text-blue cursor-pointer" onClick={() => onEpicFilterChange(null)}>clear</span>
               </td></tr>
             )}
             {sorted.length === 0 && openEpics.length === 0 && !closedCount && (

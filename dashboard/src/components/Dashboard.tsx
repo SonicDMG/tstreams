@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { Topbar } from './Topbar'
 import { KpiRowAndHero } from './KpiRowAndHero'
@@ -13,6 +14,11 @@ import { SSEProvider } from '../contexts/SSEContext'
 export function Dashboard() {
   const queryClient = useQueryClient()
   const { currentProject } = useDrillDown()
+  const [kpiFilter, setKpiFilter] = useState<string | null>(null)
+
+  function handleKpiClick(filter: string) {
+    setKpiFilter(f => f === filter ? null : filter)
+  }
 
   // Collect loaded epic IDs for the DecisionPanel
   const { data: openEpics = [] } = useQuery({
@@ -33,10 +39,10 @@ export function Dashboard() {
     <SSEProvider project={currentProject || undefined}>
       <div className="min-h-screen bg-background text-foreground">
         <Topbar onRefresh={handleRefresh} />
-        <KpiRowAndHero kpiFilter={null} onKpiClick={() => {}} />
+        <KpiRowAndHero kpiFilter={kpiFilter} onKpiClick={handleKpiClick} />
 
         <main className="max-w-[1100px] mx-auto px-4 py-6 flex flex-col gap-7">
-          <EpicTable />
+          <EpicTable epicFilter={kpiFilter} onEpicFilterChange={setKpiFilter} />
           <TaskPanelsSection />
           {(stats?.decisions_open ?? 0) > 0 && (
             <DecisionPanel
